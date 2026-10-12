@@ -1,332 +1,431 @@
+import mongoose from 'mongoose';
 import { Complaint } from '../models/Complaint.js';
-import { User, Citizen } from '../models/User.js';
-import { RewardActivity } from '../models/RewardActivity.js';
+import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
-import { 
-  categorizeComplaint, 
-  detectDuplicate 
-} from '../services/aiService.js';
-import { uploadImage } from '../services/uploadService.js';
-import { sendEmail } from '../services/emailService.js';
+import { asyncHandler, suggestCategoryAndPriority, evaluateBadges } from '../utils/helpers.js';
+import { sendMail, complaintStatusTemplate } from '../utils/mailer.js';
 
-// Citizen submits a new complaint
-export const createComplaint = async (req, res, next) => {
-  try {
-    const { title, description, address, lat, lng } = req.body;
-    
-    if (!title || !description || !address || !lat || !lng) {
-      return res.status(400).json({ success: false, message: 'Missing required issue parameters' });
-    }
+/**
+ * @desc    Suggest category and priority while user types
+ * @route   POST /api/complaints/suggest
+ * @access  Public / Private
+ */
+export const suggest = asyncHandler(async (req, res) => {
+  const { text = '', description = '', title = '' } = req.body;
+  const combinedText = `${title} ${description} ${text}`.trim();
 
-    // Upload image file
-    let imageUrl = '';
-    if (req.file) {
-      imageUrl = await uploadImage(req.file);
-    } else {
-      imageUrl = req.body.imageUrl || 'https://images.unsplash.com/photo-1599740831146-7a69476b5270?auto=format&fit=crop&w=600&q=80';
-    }
+  const suggestion = suggestCategoryAndPriority(combinedText);
 
-    // AI Categorization & Priority scoring
-    const aiTags = await categorizeComplaint(description, imageUrl);
+  res.status(200).json({
+    success: true,
+    data: suggestion
+  });
+});
 
-    // AI Proximity check for duplicate complaints (fetch open complaints in same category)
-    const nearbyComplaints = await Complaint.find({ 
-      category: aiTags.category, 
-      status: { $ne: 'resolved' } 
+/**
+ * @desc    Submit a new civic complaint (with optional image upload)
+ * @route   POST /api/complaints
+ * @access  Private (Citizen)
+ */
+export const createComplaint = asyncHandler(async (req, res) => {
+  const { title, description, category, priority } = req.body;
+
+  if (!description) {
+    return res.status(400).json({
+      success: false,
+      message: 'Description is required to file a complaint'
     });
+  }
 
-    const mockNewComp = {
-      description,
-      location: { lat: parseFloat(lat), lng: parseFloat(lng) }
-    };
-
-    const duplicateId = detectDuplicate(mockNewComp, nearbyComplaints);
-
-    // Create complaint
-    const complaint = await Complaint.create({
-      reporterId: req.user._id,
-      title,
-      description,
-      imageUrl,
-      category: aiTags.category,
-      priority: aiTags.priority,
-      status: 'pending',
-      location: {
-        address,
-        lat: parseFloat(lat),
-        lng: parseFloat(lng)
-      },
-      duplicateOf: duplicateId,
-      updates: [{
-        text: `Complaint registered. Category tagged as "${aiTags.category}" with priority "${aiTags.priority}" by AI.`
-      }]
-    });
-
-    // Award +50 points to reporter for submitting a report
-    const citizen = await Citizen.findById(req.user._id);
-    if (citizen) {
-      citizen.points += 50;
-      
-      // Check for first report badge
-      const hasBadge = citizen.badges.some(b => b.name === 'First Reporter');
-      if (!hasBadge) {
-        citizen.badges.push({
-          name: 'First Reporter',
-          icon: 'stars',
-          description: 'Filed your first civic complaint'
-        });
+  // Parse location (can be object, JSON string, or address string)
+  let parsedLocation = { address: '', lat: null, lng: null };
+  if (req.body.location) {
+    if (typeof req.body.location === 'object') {
+      parsedLocation = {
+        address: req.body.location.address || '',
+        lat: req.body.location.lat ? Number(req.body.location.lat) : null,
+        lng: req.body.location.lng ? Number(req.body.location.lng) : null
+      };
+    } else if (typeof req.body.location === 'string') {
+      try {
+        const obj = JSON.parse(req.body.location);
+        parsedLocation = {
+          address: obj.address || req.body.location,
+          lat: obj.lat ? Number(obj.lat) : null,
+          lng: obj.lng ? Number(obj.lng) : null
+        };
+      } catch {
+        parsedLocation = { address: req.body.location, lat: null, lng: null };
       }
-      await citizen.save();
-
-      // Log reward activity
-      await RewardActivity.create({
-        userId: citizen._id,
-        points: 50,
-        reason: 'Reported a new civic issue',
-        badgeEarned: !hasBadge ? 'First Reporter' : null
-      });
     }
-
-    // Generate System Notification
-    await Notification.create({
-      userId: req.user._id,
-      title: 'Ticket Submitted',
-      message: `Your report "${title}" has been registered. AI classification tag: ${aiTags.category}.`
-    });
-
-    res.status(201).json({
-      success: true,
-      complaint
-    });
-  } catch (error) {
-    next(error);
   }
-};
 
-// Citizen views their own complaints list
-export const getMineComplaints = async (req, res, next) => {
-  try {
-    const mine = await Complaint.find({ reporterId: req.user._id }).sort({ createdAt: -1 });
-    res.status(200).json({ success: true, count: mine.length, complaints: mine });
-  } catch (error) {
-    next(error);
+  // Handle uploaded file or provided imageUrl string
+  let imageUrl = '';
+  if (req.file) {
+    imageUrl = `/uploads/${req.file.filename}`;
+  } else if (req.body.imageUrl) {
+    imageUrl = req.body.imageUrl;
   }
-};
 
-// Authority views complaints queue
-export const getComplaints = async (req, res, next) => {
-  try {
-    const { status, category, priority } = req.query;
-    
-    let query = {};
-    
-    if (status) query.status = status;
-    if (category) query.category = category;
-    if (priority) query.priority = priority;
+  // Auto-suggest category and priority if not provided
+  const aiSuggestion = suggestCategoryAndPriority(`${title || ''} ${description}`);
+  const finalCategory = category || aiSuggestion.category;
+  const finalPriority = priority || aiSuggestion.priority;
+  const finalTitle = title || `${finalCategory} near ${parsedLocation.address || 'Local Area'}`;
 
-    const list = await Complaint.find(query).populate('reporterId', 'name email phone');
-
-    // Mapped priorities to weights for sorting (high priority first)
-    const priorityWeight = { high: 3, medium: 2, low: 1 };
-    
-    const sorted = [...list].sort((a, b) => {
-      return (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
-    });
-
-    res.status(200).json({
-      success: true,
-      count: sorted.length,
-      complaints: sorted
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Authority assigns complaint
-export const assignComplaint = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { department } = req.body;
-
-    if (!department) {
-      return res.status(400).json({ success: false, message: 'Please supply a department name' });
-    }
-
-    const comp = await Complaint.findById(id);
-    if (!comp) {
-      return res.status(404).json({ success: false, message: 'Complaint not found' });
-    }
-
-    comp.assignedDepartment = department;
-    comp.status = 'in_progress';
-    comp.updates.push({
-      text: `Issue assigned to ${department} department. Progress: In Progress.`
-    });
-    await comp.save();
-
-    // Trigger notify for reporter
-    await Notification.create({
-      userId: comp.reporterId,
-      title: 'Ticket In Progress',
-      message: `Your report "${comp.title}" is assigned to the "${department}" department.`
-    });
-
-    res.status(200).json({ success: true, complaint: comp });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Authority resolves complaint
-export const resolveComplaint = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const comp = await Complaint.findById(id);
-    if (!comp) {
-      return res.status(404).json({ success: false, message: 'Complaint not found' });
-    }
-
-    comp.status = 'resolved';
-    comp.updates.push({
-      text: 'Municipal Roadworks/Sanitation crew resolved the issue. Verified by representative.'
-    });
-    await comp.save();
-
-    // Award points to citizen reporter (+100 pts)
-    const reporter = await Citizen.findById(comp.reporterId);
-    if (reporter) {
-      reporter.points += 100;
-      
-      // Earn a Badge: Civic Guardian if resolved reports >= 2
-      const resolvedCount = await Complaint.countDocuments({ reporterId: reporter._id, status: 'resolved' });
-      let badgeName = null;
-      
-      if (resolvedCount >= 2 && !reporter.badges.some(b => b.name === 'Civic Guardian')) {
-        badgeName = 'Civic Guardian';
-        reporter.badges.push({
-          name: 'Civic Guardian',
-          icon: 'shield',
-          description: 'Reported 2+ resolved civic issues'
-        });
+  // Create complaint
+  const complaint = await Complaint.create({
+    title: finalTitle,
+    description,
+    imageUrl,
+    category: finalCategory,
+    priority: finalPriority,
+    location: parsedLocation,
+    citizen: req.user._id,
+    citizenName: req.user.name || 'Citizen',
+    status: 'pending',
+    updates: [
+      {
+        date: new Date(),
+        text: `Issue registered with AI-suggested priority: ${finalPriority}`
       }
-      await reporter.save();
+    ]
+  });
 
-      // Log Reward log
-      await RewardActivity.create({
-        userId: reporter._id,
-        points: 100,
-        reason: `Report resolved: ${comp.title}`,
-        badgeEarned: badgeName,
-        certificateUrl: `/api/users/${reporter._id}/certificate/gen` // Dynamic certificate link
-      });
+  // Award +10 reward points to citizen for reporting issue
+  await User.findByIdAndUpdate(req.user._id, {
+    $inc: { rewardPoints: 10 }
+  });
 
-      // Generate System Notification
-      await Notification.create({
-        userId: reporter._id,
-        title: 'Issue Resolved!',
-        message: `Awesome! Your reported ticket "${comp.title}" is resolved. You earned 100 reward points!`
-      });
+  // In-app Notification for citizen
+  await Notification.create({
+    user: req.user._id,
+    title: 'Report Submitted (+10 Points)',
+    message: `Your report "${finalTitle}" has been logged successfully. You earned 10 Civic Points!`,
+    type: 'complaint',
+    relatedId: complaint._id
+  }).catch((err) => console.warn('Notification err:', err.message));
 
-      // Mock Email notify
-      await sendEmail({
-        to: reporter.email,
-        subject: 'CivicConnect Issue Resolved Notification',
-        html: `<h3>Great news, ${reporter.name}!</h3>
-        <p>Your reported issue <strong>"${comp.title}"</strong> has been successfully resolved by municipal crews.</p>
-        <p>You have been awarded <strong>100 points</strong>. Keep helping your community!</p>`
-      });
-    }
+  // Send confirmation email fire-and-forget
+  const statusHtml = complaintStatusTemplate(req.user, complaint, 'none', 'pending', 'Your issue has been logged and queued for department assignment.');
+  sendMail({
+    to: req.user.email,
+    subject: `CivicConnect: Issue Logged - ${finalTitle}`,
+    html: statusHtml
+  });
 
-    res.status(200).json({ success: true, complaint: comp });
-  } catch (error) {
-    next(error);
+  res.status(201).json({
+    success: true,
+    message: 'Complaint submitted successfully and 10 reward points awarded',
+    data: complaint
+  });
+});
+
+/**
+ * @desc    Get logged-in citizen's complaints
+ * @route   GET /api/complaints/mine
+ * @access  Private (Citizen)
+ */
+export const getMyComplaints = asyncHandler(async (req, res) => {
+  const complaints = await Complaint.find({ citizen: req.user._id }).sort({ createdAt: -1 });
+
+  res.status(200).json({
+    success: true,
+    count: complaints.length,
+    data: complaints
+  });
+});
+
+/**
+ * @desc    Get complaints for authorities (sorted by priority High -> Med -> Low, support count, date)
+ * @route   GET /api/complaints
+ * @access  Private (Authority, Admin)
+ */
+export const getComplaints = asyncHandler(async (req, res) => {
+  const { status, category } = req.query;
+
+  const match = {};
+  if (status) {
+    match.status = status;
   }
-};
+  if (category) {
+    match.category = category;
+  }
 
-// Authority rejects complaint
-export const rejectComplaint = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { reason } = req.body;
-
-    const comp = await Complaint.findById(id);
-    if (!comp) {
-      return res.status(404).json({ success: false, message: 'Complaint not found' });
+  // Aggregation for custom priority ordering (High -> Medium -> Low)
+  const complaints = await Complaint.aggregate([
+    { $match: match },
+    {
+      $addFields: {
+        priorityRank: {
+          $switch: {
+            branches: [
+              { case: { $eq: ['$priority', 'High'] }, then: 1 },
+              { case: { $eq: ['$priority', 'Medium'] }, then: 2 },
+              { case: { $eq: ['$priority', 'Low'] }, then: 3 }
+            ],
+            default: 4
+          }
+        }
+      }
+    },
+    {
+      $sort: {
+        priorityRank: 1,
+        supportCount: -1,
+        createdAt: -1
+      }
     }
+  ]);
 
-    comp.status = 'rejected';
-    comp.updates.push({
-      text: `Issue rejected. Reason: ${reason || 'Invalid report/insufficient data.'}`
+  res.status(200).json({
+    success: true,
+    count: complaints.length,
+    data: complaints
+  });
+});
+
+/**
+ * @desc    Get complaint details by ID
+ * @route   GET /api/complaints/:id
+ * @access  Private
+ */
+export const getComplaintById = asyncHandler(async (req, res) => {
+  const complaint = await Complaint.findById(req.params.id)
+    .populate('citizen', 'name email phone')
+    .populate('assignedTo', 'name department');
+
+  if (!complaint) {
+    return res.status(404).json({
+      success: false,
+      message: 'Complaint not found'
     });
-    await comp.save();
+  }
 
-    // Notify citizen
+  res.status(200).json({
+    success: true,
+    data: complaint
+  });
+});
+
+/**
+ * @desc    Update complaint status (authority only)
+ * @route   PATCH /api/complaints/:id/status
+ * @access  Private (Authority, Admin)
+ */
+export const updateStatus = asyncHandler(async (req, res) => {
+  const { status, note, assignedTo } = req.body;
+
+  const validStatuses = ['pending', 'in_progress', 'resolved', 'rejected'];
+  if (!status || !validStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+    });
+  }
+
+  const complaint = await Complaint.findById(req.params.id);
+  if (!complaint) {
+    return res.status(404).json({
+      success: false,
+      message: 'Complaint not found'
+    });
+  }
+
+  const previousStatus = complaint.status;
+  complaint.status = status;
+
+  if (assignedTo) {
+    complaint.assignedTo = assignedTo;
+  }
+
+  if (note) {
+    complaint.notes.push({
+      note,
+      updatedBy: req.user._id,
+      createdAt: new Date()
+    });
+  }
+
+  const statusLabel = {
+    pending: 'Pending',
+    in_progress: 'In Progress',
+    resolved: 'Resolved',
+    rejected: 'Rejected'
+  }[status];
+
+  complaint.updates.push({
+    date: new Date(),
+    text: note ? `Status updated to ${statusLabel}: ${note}` : `Status updated to ${statusLabel}`
+  });
+
+  await complaint.save();
+
+  // Find reporting citizen
+  const citizenUser = await User.findById(complaint.citizen);
+
+  // If newly marked resolved, award +20 reward points
+  if (previousStatus !== 'resolved' && status === 'resolved' && citizenUser) {
+    citizenUser.rewardPoints = (citizenUser.rewardPoints || 0) + 20;
+
+    // Check & evaluate badges
+    const resolvedCount = await Complaint.countDocuments({ citizen: citizenUser._id, status: 'resolved' });
+    citizenUser.badges = evaluateBadges(citizenUser.rewardPoints, citizenUser.eventsCompleted || 0, resolvedCount);
+    await citizenUser.save();
+
+    // Create in-app notification
     await Notification.create({
-      userId: comp.reporterId,
-      title: 'Ticket Rejected',
-      message: `Your report "${comp.title}" was marked as rejected by authority.`
+      user: citizenUser._id,
+      title: 'Issue Resolved! (+20 Points)',
+      message: `Your report "${complaint.title}" has been resolved. You earned 20 Reward Points!`,
+      type: 'complaint',
+      relatedId: complaint._id
+    }).catch((err) => console.warn('Notification err:', err.message));
+  } else if (citizenUser) {
+    // Notification for other status changes
+    await Notification.create({
+      user: citizenUser._id,
+      title: `Status Update: ${statusLabel}`,
+      message: `Municipal team updated your report "${complaint.title}" to ${statusLabel}.`,
+      type: 'complaint',
+      relatedId: complaint._id
+    }).catch((err) => console.warn('Notification err:', err.message));
+  }
+
+  // Send status update email fire-and-forget
+  if (citizenUser) {
+    const statusHtml = complaintStatusTemplate(citizenUser, complaint, previousStatus, status, note);
+    sendMail({
+      to: citizenUser.email,
+      subject: `CivicConnect: Complaint Status Update - ${statusLabel}`,
+      html: statusHtml
     });
-
-    res.status(200).json({ success: true, complaint: comp });
-  } catch (error) {
-    next(error);
   }
-};
 
-// Citizen feedback post
-export const addFeedback = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { rating, comment } = req.body;
+  res.status(200).json({
+    success: true,
+    message: `Complaint status updated to ${status}`,
+    data: complaint
+  });
+});
 
-    if (!rating) {
-      return res.status(400).json({ success: false, message: 'Please supply a rating score between 1 and 5' });
-    }
+/**
+ * @desc    Submit citizen feedback after resolution
+ * @route   POST /api/complaints/:id/feedback
+ * @access  Private (Citizen)
+ */
+export const submitFeedback = asyncHandler(async (req, res) => {
+  const { rating, comment } = req.body;
 
-    const comp = await Complaint.findById(id);
-    if (!comp) {
-      return res.status(404).json({ success: false, message: 'Complaint not found' });
-    }
-
-    if (comp.reporterId.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: 'Access denied: You can only submit feedback for your own reports' });
-    }
-
-    if (comp.status !== 'resolved') {
-      return res.status(400).json({ success: false, message: 'Feedback can only be posted after the ticket has been resolved' });
-    }
-
-    comp.feedback = { rating, comment };
-    await comp.save();
-
-    res.status(200).json({ success: true, message: 'Feedback registered successfully', complaint: comp });
-  } catch (error) {
-    next(error);
+  if (!rating || rating < 1 || rating > 5) {
+    return res.status(400).json({
+      success: false,
+      message: 'Rating must be an integer between 1 and 5'
+    });
   }
-};
 
-// Export Complaints CSV
-export const exportComplaints = async (req, res, next) => {
-  try {
-    const list = await Complaint.find().populate('reporterId', 'name email');
-    
-    let csv = 'ID,Title,Category,Priority,Status,Address,Reporter,Date\n';
-    
-    for (const comp of list) {
-      const escapedTitle = comp.title.replace(/"/g, '""');
-      const escapedAddress = comp.location?.address?.replace(/"/g, '""') || '';
-      const reporterName = comp.reporterId ? comp.reporterId.name : 'Deleted User';
-      const dateStr = comp.createdAt.toISOString().split('T')[0];
-      
-      csv += `"${comp._id}","${escapedTitle}","${comp.category}","${comp.priority}","${comp.status}","${escapedAddress}","${reporterName}","${dateStr}"\n`;
-    }
-
-    res.header('Content-Type', 'text/csv');
-    res.attachment('complaints_export.csv');
-    return res.send(csv);
-  } catch (error) {
-    next(error);
+  const complaint = await Complaint.findById(req.params.id);
+  if (!complaint) {
+    return res.status(404).json({
+      success: false,
+      message: 'Complaint not found'
+    });
   }
-};
+
+  if (complaint.status !== 'resolved') {
+    return res.status(400).json({
+      success: false,
+      message: 'Feedback can only be submitted once the complaint has been resolved'
+    });
+  }
+
+  if (complaint.citizen.toString() !== req.user._id.toString()) {
+    return res.status(403).json({
+      success: false,
+      message: 'Only the citizen who reported this issue can submit resolution feedback'
+    });
+  }
+
+  complaint.feedback = {
+    rating: Number(rating),
+    comment: comment || '',
+    submittedAt: new Date()
+  };
+
+  await complaint.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Thank you for your feedback!',
+    data: complaint.feedback
+  });
+});
+
+/**
+ * @desc    Citizen support toggle ("I am facing this too")
+ * @route   POST /api/complaints/:id/support
+ * @access  Private (Citizen)
+ */
+export const toggleSupport = asyncHandler(async (req, res) => {
+  const complaint = await Complaint.findById(req.params.id);
+  if (!complaint) {
+    return res.status(404).json({
+      success: false,
+      message: 'Complaint not found'
+    });
+  }
+
+  const userIdStr = req.user._id.toString();
+  const existingIndex = complaint.supporters.findIndex((id) => id.toString() === userIdStr);
+
+  let isSupported = false;
+  if (existingIndex > -1) {
+    // Already supported, toggle off
+    complaint.supporters.splice(existingIndex, 1);
+    isSupported = false;
+  } else {
+    // Add support
+    complaint.supporters.push(req.user._id);
+    isSupported = true;
+  }
+
+  complaint.supportCount = complaint.supporters.length;
+  await complaint.save();
+
+  res.status(200).json({
+    success: true,
+    message: isSupported ? 'You flagged that you are facing this issue too' : 'Removed support for this issue',
+    data: {
+      isSupported,
+      supportCount: complaint.supportCount
+    }
+  });
+});
+
+/**
+ * @desc    Authority dashboard stats (open count, resolved this week, active volunteers)
+ * @route   GET /api/complaints/stats
+ * @access  Private (Authority, Admin)
+ */
+export const getStats = asyncHandler(async (req, res) => {
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+  const [openCount, resolvedThisWeek, totalResolved, activeCitizens] = await Promise.all([
+    Complaint.countDocuments({ status: { $in: ['pending', 'in_progress'] } }),
+    Complaint.countDocuments({ status: 'resolved', updatedAt: { $gte: oneWeekAgo } }),
+    Complaint.countDocuments({ status: 'resolved' }),
+    User.countDocuments({ role: 'citizen', rewardPoints: { $gt: 0 } })
+  ]);
+
+  res.status(200).json({
+    success: true,
+    data: {
+      openCount,
+      resolvedThisWeek,
+      totalResolved,
+      activeVolunteers: activeCitizens
+    }
+  });
+});

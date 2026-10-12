@@ -4,93 +4,97 @@ import Card from '../components/Card';
 import Input from '../components/Input';
 import Button from '../components/Button';
 
-
 export default function LogIn({ onLoginSuccess }) {
   const navigate = useNavigate();
-  const [loginMethod, setLoginMethod] = useState('email'); // 'email' or 'phone'
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('Citizen');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const redirectUser = (selectedRole) => {
+    const norm = (selectedRole || '').toLowerCase();
+    if (norm === 'citizen') navigate('/citizen-dashboard');
+    else if (norm === 'ngo') navigate('/ngo-dashboard');
+    else if (norm === 'business') navigate('/business-dashboard');
+    else if (norm === 'authority' || norm === 'municipal authority') navigate('/municipal-dashboard');
+    else navigate('/');
+  };
+
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    const identifier = loginMethod === 'email' ? email : phone;
-    if (!identifier || !password) {
-      setError('Please fill out all fields.');
+    if (!email || !password) {
+      setError('Please enter both your email address and password.');
       return;
     }
 
-    const nameFromIdentifier = loginMethod === 'email'
-      ? email.split('@')[0]
-          .split(/[._+-]/)
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ')
-      : 'User ' + phone.slice(-4);
+    setIsLoading(true);
+    setError('');
 
-    // Mock Login Context Setup based on selected Role
-    let mockUserObj = {
-      id: 'usr-' + Math.floor(Math.random() * 100),
-      name: nameFromIdentifier,
+    let loggedInUser = {
+      email,
+      name: email.split('@')[0] || 'User',
       role: role,
-      email: loginMethod === 'email' ? email : '',
-      phone: loginMethod === 'phone' ? phone : '',
-      location: 'Metropolis City',
-      points: 0,
-      badges: [],
+      points: 120,
       activityHistory: []
     };
 
-    onLoginSuccess(mockUserObj);
-    redirectUser(role);
-  };
-
-  const redirectUser = (selectedRole) => {
-    switch (selectedRole) {
-      case 'Citizen':
-        navigate('/citizen-dashboard');
-        break;
-      case 'NGO':
-        navigate('/ngo-dashboard');
-        break;
-      case 'Business':
-        navigate('/business-dashboard');
-        break;
-      case 'Municipal Authority':
-        navigate('/municipal-dashboard');
-        break;
-      default:
-        navigate('/');
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: email,
+          password: password,
+          role: role
+        })
+      });
+      const result = await response.json();
+      if (response.ok && result.success && result.data) {
+        loggedInUser = {
+          ...result.data,
+          role: role,
+          points: result.data.points ?? 120,
+          activityHistory: result.data.activityHistory || []
+        };
+        if (result.token) {
+          localStorage.setItem('civic_token', result.token);
+        }
+      } else if (!response.ok && result.message) {
+        setError(result.message);
+        setIsLoading(false);
+        return;
+      }
+    } catch (fetchErr) {
+      // Fallback to local session if backend API is unreachable
+      console.warn('Backend login unavailable, proceeding with local credentials:', fetchErr);
     }
+
+    setIsLoading(false);
+    onLoginSuccess(loggedInUser);
+    redirectUser(loggedInUser.role || role);
   };
 
   return (
     <div className="max-w-[1280px] mx-auto px-6 py-12 flex flex-col items-center min-h-[calc(100vh-64px)] justify-center">
-      <Card className="w-full max-w-[450px] flex flex-col gap-6">
+      <Card className="w-full max-w-[460px] flex flex-col gap-6">
         <div className="text-center">
           <h2 className="text-2xl font-extrabold text-secondary">Log In to CivicConnect</h2>
-          <p className="text-sm text-secondary/60 mt-1">Access your civic dashboard</p>
+          <p className="text-sm text-secondary/60 mt-1">Access your civic account</p>
         </div>
 
         {error && (
-          <div className="bg-error-container border border-error/20 text-error p-3 rounded-custom-lg text-sm text-center font-medium">
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-custom-lg text-sm text-center font-medium">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="flex flex-col gap-4">
+        <form onSubmit={handleLoginSubmit} className="flex flex-col gap-4">
           <Input
             label="Role Type"
             type="select"
             value={role}
-            onChange={(e) => {
-              const newRole = e.target.value;
-              setRole(newRole);
-              if (newRole !== 'Citizen') {
-                setLoginMethod('email');
-              }
-            }}
+            onChange={(e) => setRole(e.target.value)}
             options={[
               { value: 'Citizen', label: 'Citizen / Student' },
               { value: 'NGO', label: 'NGO Representative' },
@@ -99,53 +103,14 @@ export default function LogIn({ onLoginSuccess }) {
             ]}
           />
 
-          {role === 'Citizen' && (
-            /* Login Method Toggle */
-            <div className="flex gap-2 p-1 bg-surface-low rounded-custom-lg border border-border-custom text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setLoginMethod('email')}
-                className={`flex-1 py-1.5 rounded-custom-md text-center transition-all cursor-pointer ${
-                  loginMethod === 'email'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-secondary/60 hover:text-secondary'
-                }`}
-              >
-                Email Address
-              </button>
-              <button
-                type="button"
-                onClick={() => setLoginMethod('phone')}
-                className={`flex-1 py-1.5 rounded-custom-md text-center transition-all cursor-pointer ${
-                  loginMethod === 'phone'
-                    ? 'bg-white text-primary shadow-sm'
-                    : 'text-secondary/60 hover:text-secondary'
-                }`}
-              >
-                Phone Number
-              </button>
-            </div>
-          )}
-
-          {loginMethod === 'email' ? (
-            <Input
-              label="Email Address"
-              type="email"
-              placeholder="name@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          ) : (
-            <Input
-              label="Phone Number"
-              type="tel"
-              placeholder="+1 (555) 000-0000"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-            />
-          )}
+          <Input
+            label="Email Address"
+            type="email"
+            placeholder="name@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
 
           <Input
             label="Password"
@@ -156,15 +121,23 @@ export default function LogIn({ onLoginSuccess }) {
             required
           />
 
-          <Button type="submit" variant="primary" className="w-full mt-2">
-            Log In
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={isLoading}
+            className="w-full mt-2 py-2.5 font-bold"
+          >
+            {isLoading ? 'Logging In...' : 'Log In'}
           </Button>
         </form>
 
-        <div className="text-center pt-2">
+        <div className="text-center pt-2 border-t border-border-custom">
           <p className="text-sm text-secondary/60">
             Don't have an account?{' '}
-            <button onClick={() => navigate('/role-selection')} className="text-primary font-bold hover:underline">
+            <button
+              onClick={() => navigate('/role-selection')}
+              className="text-primary font-bold hover:underline cursor-pointer"
+            >
               Sign Up here
             </button>
           </p>

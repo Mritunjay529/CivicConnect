@@ -1,69 +1,127 @@
+import 'dotenv/config';
 import express from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
-import { fileURLToPath } from 'url';
-
 import { connectDB } from './config/db.js';
-import { errorHandler } from './middleware/errorHandler.js';
-
-// Route imports
-import authRoutes from './routes/authRoutes.js';
-import complaintRoutes from './routes/complaintRoutes.js';
-import opportunityRoutes from './routes/opportunityRoutes.js';
-import eventRoutes from './routes/eventRoutes.js';
-import rewardRoutes from './routes/rewardRoutes.js';
-import notificationRoutes from './routes/notificationRoutes.js';
-import dashboardRoutes from './routes/dashboardRoutes.js';
-
-// Setup environment configs
-dotenv.config();
-
-// Connect to MongoDB
-connectDB();
+import { verifyTransporter } from './utils/mailer.js';
+import { errorHandler } from './middleware/index.js';
+import { User } from './models/User.js';
+import routes from './routes.js';
 
 const app = express();
 
-// Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
-  credentials: true
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
+// 1. Security HTTP Headers
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
+  })
+);
 
-// Serve static image uploads
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// 2. CORS configuration (allows frontend origin from env or default localhost)
+const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+app.use(
+  cors({
+    origin: [clientUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+  })
+);
 
-// API Base Check
+// 3. Body parsers
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 4. Static folder for uploaded files
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+// 5. Rate limiting for Authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // max 20 requests per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts from this IP, please try again after 15 minutes.'
+  }
+});
+app.use('/api/auth', authLimiter);
+
+// 6. Health check route
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ success: true, message: 'CivicConnect Backend API is healthy' });
+  res.status(200).json({
+    success: true,
+    message: 'CivicConnect API server is running smoothly',
+    timestamp: new Date().toISOString()
+  });
 });
 
-// Modular Routes Registration
-app.use('/api/auth', authRoutes);
-app.use('/api/complaints', complaintRoutes);
-app.use('/api/opportunities', opportunityRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/users', rewardRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+// 7. Mount all API routes
+app.use('/api', routes);
 
-// Fallback Route Not Found Handler
-app.use((req, res, next) => {
-  res.status(404);
-  const error = new Error(`Not Found - ${req.originalUrl}`);
-  next(error);
+// 8. 404 Route Handler
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `API endpoint '${req.originalUrl}' not found`
+  });
 });
 
-// Centralized Error handler
+// 9. Centralized Error Handler Middleware
 app.use(errorHandler);
 
+// Admin Seeder function
+const seedAdminUser = async () => {
+  try {
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@civicconnect.in').toLowerCase().trim();
+    const adminPassword = process.env.ADMIN_PASSWORD || 'adminPassword123!';
+
+    const existingAdmin = await User.findOne({ email: adminEmail });
+    if (!existingAdmin) {
+      await User.create({
+        name: 'CivicConnect Administrator',
+        email: adminEmail,
+        password: adminPassword,
+        role: 'admin',
+        status: 'active',
+        isEmailVerified: true
+      });
+      console.log(`🛡️  Admin user successfully seeded: ${adminEmail}`);
+    } else {
+      console.log(`🛡️  Admin account ready: ${adminEmail}`);
+    }
+  } catch (error) {
+    console.error('⚠️  Failed to seed admin user:', error.message);
+  }
+};
+
+// Server Initialization
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
+
+const startServer = async () => {
+  try {
+    // Connect to database
+    await connectDB();
+
+    // Verify SMTP configuration (non-blocking)
+    verifyTransporter();
+
+    // Seed default admin user if not already present
+    await seedAdminUser();
+
+    app.listen(PORT, () => {
+      console.log(`🚀 CivicConnect Backend Server running on http://localhost:${PORT}`);
+      console.log(`🌐 CORS enabled for: ${clientUrl}`);
+    });
+  } catch (error) {
+    console.error('❌ Failed to start CivicConnect server:', error.message);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+export default app;

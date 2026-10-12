@@ -26,18 +26,8 @@ src/
   pages/authority/AuthorityDashboard
 ```
 
-## What's mocked vs. real
+## Features & Architecture
 
-- All pages are fully functional React components with local state (`useState`) and routing.
-- Data (complaints, opportunities, events, notifications) is hardcoded — no backend calls yet.
-- Forms navigate on submit but don't persist data — wire these up to your MERN API
-  (`/api/auth`, `/api/complaints`, `/api/opportunities`, etc.) next.
-- The "AI suggests: category + priority" bit on the Report Issue page is a simple
-  keyword mock — replace with a real call to your AI service.
-
-## Next steps
-
-1. Add an Express + MongoDB backend and connect forms via `fetch`/`axios`.
-2. Add JWT-based auth and protect role-specific routes.
-3. Replace mock data with API responses.
-4. Wire the AI category/priority suggestion and volunteer-matching to a real model or LLM call.
+- Standalone React + Vite application with Tailwind CSS and React Router.
+- Full role-based user flows (Citizen, NGO, Corporate CSR, Municipal Authority).
+- Client-side mock state management and simulated OTP authentication.

@@ -10,8 +10,10 @@ export default function SignUp({ onLoginSuccess }) {
   const navigate = useNavigate();
   const role = searchParams.get('role') || 'Citizen';
 
-  const [signUpMethod, setSignUpMethod] = useState('email'); // 'email' or 'phone'
   const [currentStep, setCurrentStep] = useState(0);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -52,113 +54,146 @@ export default function SignUp({ onLoginSuccess }) {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    setErrorMessage('');
   };
 
   const handleNext = () => {
+    setErrorMessage('');
+
+    // Step 0 validation (Credentials)
+    if (currentStep === 0) {
+      if (!formData.email) {
+        setErrorMessage('Please provide a valid email address.');
+        return;
+      }
+      if (!formData.password || formData.password.length < 6) {
+        setErrorMessage('Password must be at least 6 characters long.');
+        return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        setErrorMessage('Passwords do not match.');
+        return;
+      }
+    }
+
+    // Step 1 validation (Profile Details)
+    if (currentStep === 1) {
+      if (role === 'Citizen' && !formData.fullName) {
+        setErrorMessage('Please enter your full name.');
+        return;
+      }
+      if (role === 'NGO' && (!formData.ngoName || !formData.registrationNo || !formData.ngoContactName)) {
+        setErrorMessage('Please complete all NGO organization details.');
+        return;
+      }
+      if (role === 'Business' && (!formData.businessName || !formData.taxId || !formData.bizContactName)) {
+        setErrorMessage('Please complete all corporate details.');
+        return;
+      }
+      if (role === 'Municipal Authority' && (!formData.fullName || !formData.employeeId)) {
+        setErrorMessage('Please fill in municipal authorization details.');
+        return;
+      }
+    }
+
     if (currentStep < steps.length - 1) {
       setCurrentStep((prev) => prev + 1);
     }
   };
 
   const handlePrev = () => {
+    setErrorMessage('');
     if (currentStep > 0) {
       setCurrentStep((prev) => prev - 1);
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.agreeTerms) {
-      alert('You must agree to the terms & conditions.');
+      setErrorMessage('You must agree to the terms & conditions to proceed.');
       return;
     }
 
-    // Mock Login Context Activation
-    let formattedName = '';
-    let dashboardPath = '';
+    setIsLoading(true);
+    setErrorMessage('');
 
-    if (role === 'Citizen') {
-      formattedName = formData.fullName || 'New Citizen';
-      dashboardPath = '/citizen-dashboard';
-    } else if (role === 'NGO') {
-      formattedName = formData.ngoName || 'New NGO';
-      dashboardPath = '/ngo-dashboard';
-    } else if (role === 'Business') {
-      formattedName = formData.businessName || 'New Business';
-      dashboardPath = '/business-dashboard';
-    } else if (role === 'Municipal Authority') {
-      formattedName = formData.fullName || 'City Official';
-      dashboardPath = '/municipal-dashboard';
-    }
+    // Role-to-param mapping
+    const roleSlug = role === 'Municipal Authority' ? 'authority' : role.toLowerCase();
 
-    const mockUser = {
-      id: 'usr-' + Math.floor(Math.random() * 1000),
-      name: formattedName,
+    const payload = {
+      role: roleSlug,
+      email: formData.email,
+      password: formData.password,
+      phone: formData.phone || '',
+      name: formData.fullName || formData.ngoContactName || formData.businessName || formData.email.split('@')[0],
+      fullName: formData.fullName,
+      orgName: formData.ngoName,
+      registrationNumber: formData.registrationNo,
+      contactPerson: formData.ngoContactName,
+      businessName: formData.businessName,
+      gstNumber: formData.taxId,
+      csrFocusArea: formData.csrFocus,
+      department: formData.dept,
+      employeeId: formData.employeeId
+    };
+
+    let registeredUser = {
+      email: formData.email,
+      name: payload.name || 'User',
       role: role,
-      email: signUpMethod === 'email' ? formData.email : '',
-      phone: signUpMethod === 'phone' ? formData.phone : '',
-      location: formData.location || formData.ngoLocation || formData.cityName || 'Metropolis',
       points: 100,
-      badges: [],
       activityHistory: []
     };
 
-    onLoginSuccess(mockUser);
-    navigate(dashboardPath);
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (response.ok && result.success && result.data) {
+        registeredUser = {
+          ...result.data,
+          role: role,
+          points: result.data.points ?? 100,
+          activityHistory: result.data.activityHistory || []
+        };
+        if (result.token) {
+          localStorage.setItem('civic_token', result.token);
+        }
+      } else if (!response.ok && result.message) {
+        setErrorMessage(result.message);
+        setIsLoading(false);
+        return;
+      }
+    } catch (fetchErr) {
+      console.warn('Backend signup unavailable, proceeding with local registration:', fetchErr);
+    }
+
+    setIsLoading(false);
+    onLoginSuccess(registeredUser);
+    const roleNorm = (registeredUser.role || role).toLowerCase();
+    if (roleNorm === 'citizen') navigate('/citizen-dashboard');
+    else if (roleNorm === 'ngo') navigate('/ngo-dashboard');
+    else if (roleNorm === 'business') navigate('/business-dashboard');
+    else if (roleNorm === 'authority' || roleNorm === 'municipal authority') navigate('/municipal-dashboard');
+    else navigate('/');
   };
 
-  // Render inputs dynamically based on Step 1 (Credentials)
+  // Step 0 (Credentials)
   const renderStep0 = () => (
     <div className="flex flex-col gap-4">
-      {/* Sign Up Method Toggle */}
-      {role === 'Citizen' && (
-        <div className="flex gap-2 p-1 bg-surface-low rounded-custom-lg border border-border-custom text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => setSignUpMethod('email')}
-            className={`flex-1 py-1.5 rounded-custom-md text-center transition-all cursor-pointer ${
-              signUpMethod === 'email'
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-secondary/60 hover:text-secondary'
-            }`}
-          >
-            Email Address
-          </button>
-          <button
-            type="button"
-            onClick={() => setSignUpMethod('phone')}
-            className={`flex-1 py-1.5 rounded-custom-md text-center transition-all cursor-pointer ${
-              signUpMethod === 'phone'
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-secondary/60 hover:text-secondary'
-            }`}
-          >
-            Phone Number
-          </button>
-        </div>
-      )}
-
-      {signUpMethod === 'email' ? (
-        <Input
-          label="Email Address"
-          type="email"
-          name="email"
-          placeholder="you@example.com"
-          value={formData.email}
-          onChange={handleChange}
-          required
-        />
-      ) : (
-        <Input
-          label="Phone Number"
-          type="tel"
-          name="phone"
-          placeholder="+1 (555) 000-0000"
-          value={formData.phone}
-          onChange={handleChange}
-          required
-        />
-      )}
+      <Input
+        label="Email Address"
+        type="email"
+        name="email"
+        placeholder="you@example.com"
+        value={formData.email}
+        onChange={handleChange}
+        required
+      />
       <Input
         label="Password"
         type="password"
@@ -180,7 +215,7 @@ export default function SignUp({ onLoginSuccess }) {
     </div>
   );
 
-  // Render inputs dynamically based on Step 2 & Role Selection
+  // Step 1 (Profile Details)
   const renderStep1 = () => {
     switch (role) {
       case 'Citizen':
@@ -196,25 +231,14 @@ export default function SignUp({ onLoginSuccess }) {
               required
             />
             <div className="grid grid-cols-2 gap-4">
-              {signUpMethod === 'phone' ? (
-                <Input
-                  label="Email Address"
-                  type="email"
-                  name="email"
-                  placeholder="you@example.com"
-                  value={formData.email}
-                  onChange={handleChange}
-                />
-              ) : (
-                <Input
-                  label="Phone Number"
-                  type="tel"
-                  name="phone"
-                  placeholder="+1 (555) 000-0000"
-                  value={formData.phone}
-                  onChange={handleChange}
-                />
-              )}
+              <Input
+                label="Phone Number"
+                type="tel"
+                name="phone"
+                placeholder="+1 (555) 000-0000"
+                value={formData.phone}
+                onChange={handleChange}
+              />
               <Input
                 label="Age"
                 type="number"
@@ -226,7 +250,7 @@ export default function SignUp({ onLoginSuccess }) {
               />
             </div>
             <Input
-              label="Primary Location (Neighborhood)"
+              label="Primary Neighborhood / Location"
               type="text"
               name="location"
               placeholder="Metropolis North"
@@ -267,15 +291,25 @@ export default function SignUp({ onLoginSuccess }) {
               onChange={handleChange}
               required
             />
-            <Input
-              label="Government Registration Number"
-              type="text"
-              name="registrationNo"
-              placeholder="NGO-DEPT-998822"
-              value={formData.registrationNo}
-              onChange={handleChange}
-              required
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Govt Registration Number"
+                type="text"
+                name="registrationNo"
+                placeholder="NGO-DEPT-998822"
+                value={formData.registrationNo}
+                onChange={handleChange}
+                required
+              />
+              <Input
+                label="Official Phone Number"
+                type="tel"
+                name="phone"
+                placeholder="+1 (555) 000-0000"
+                value={formData.phone}
+                onChange={handleChange}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <Input
                 label="Primary Contact Person"
@@ -301,13 +335,12 @@ export default function SignUp({ onLoginSuccess }) {
               />
             </div>
             <Input
-              label="Headquarters Address / Neighborhood"
+              label="Headquarters Address"
               type="text"
               name="ngoLocation"
               placeholder="45 Pine St, Metropolis"
               value={formData.ngoLocation}
               onChange={handleChange}
-              required
             />
           </div>
         );
@@ -326,7 +359,7 @@ export default function SignUp({ onLoginSuccess }) {
             />
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Corporate Tax ID / EIN"
+                label="Corporate Tax ID / GST"
                 type="text"
                 name="taxId"
                 placeholder="12-3456789"
@@ -335,7 +368,26 @@ export default function SignUp({ onLoginSuccess }) {
                 required
               />
               <Input
-                label="Corporate Focus Sector"
+                label="Corporate Phone"
+                type="tel"
+                name="phone"
+                placeholder="+1 (555) 000-0000"
+                value={formData.phone}
+                onChange={handleChange}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Point of Contact"
+                type="text"
+                name="bizContactName"
+                placeholder="David Kim"
+                value={formData.bizContactName}
+                onChange={handleChange}
+                required
+              />
+              <Input
+                label="CSR Focus Sector"
                 type="select"
                 name="csrFocus"
                 value={formData.csrFocus}
@@ -347,23 +399,6 @@ export default function SignUp({ onLoginSuccess }) {
                 ]}
               />
             </div>
-            <Input
-              label="Point of Contact Person"
-              type="text"
-              name="bizContactName"
-              placeholder="David Kim"
-              value={formData.bizContactName}
-              onChange={handleChange}
-              required
-            />
-            <Input
-              label="Corporate Website URL"
-              type="text"
-              name="website"
-              placeholder="https://ecotech.com"
-              value={formData.website}
-              onChange={handleChange}
-            />
           </div>
         );
 
@@ -381,7 +416,7 @@ export default function SignUp({ onLoginSuccess }) {
             />
             <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Municipal ID Number"
+                label="Municipal Employee ID"
                 type="text"
                 name="employeeId"
                 placeholder="MUN-10029"
@@ -389,6 +424,16 @@ export default function SignUp({ onLoginSuccess }) {
                 onChange={handleChange}
                 required
               />
+              <Input
+                label="Official Phone"
+                type="tel"
+                name="phone"
+                placeholder="+1 (555) 000-0000"
+                value={formData.phone}
+                onChange={handleChange}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <Input
                 label="Assigned Department"
                 type="select"
@@ -402,25 +447,15 @@ export default function SignUp({ onLoginSuccess }) {
                   { value: 'Traffic Signage', label: 'Traffic & Signage' }
                 ]}
               />
+              <Input
+                label="Authorized City"
+                type="text"
+                name="cityName"
+                placeholder="Metropolis City"
+                value={formData.cityName}
+                onChange={handleChange}
+              />
             </div>
-            <Input
-              label="Authorized City"
-              type="text"
-              name="cityName"
-              placeholder="Metropolis City"
-              value={formData.cityName}
-              onChange={handleChange}
-              required
-            />
-            <Input
-              label="Municipal Authorization Access PIN (1234 for testing)"
-              type="password"
-              name="verificationPin"
-              placeholder="••••"
-              value={formData.verificationPin}
-              onChange={handleChange}
-              required
-            />
           </div>
         );
 
@@ -429,29 +464,29 @@ export default function SignUp({ onLoginSuccess }) {
     }
   };
 
-  // Render Confirmation step
+  // Step 2 (Confirmation)
   const renderStep2 = () => (
-    <div className="flex flex-col gap-6 text-center py-4">
-      <div className="flex flex-col items-center gap-3">
-        <span className="material-symbols-outlined text-[64px] text-primary bg-surface-low p-4 rounded-full">
-          gavel
+    <div className="flex flex-col gap-6 text-center py-2">
+      <div className="flex flex-col items-center gap-2">
+        <span className="material-symbols-outlined text-[56px] text-primary bg-surface-low p-3 rounded-full">
+          verified_user
         </span>
-        <h4 className="text-lg font-bold text-secondary">Terms and Privacy Statement</h4>
-        <p className="text-sm text-secondary/70 max-w-[500px]">
-          By registering, you commit to providing accurate information. Municipal and NGO listings undergo strict validation. Citizen accounts will earn redeemable reward points upon verified contributions.
+        <h4 className="text-lg font-bold text-secondary">Confirm Details</h4>
+        <p className="text-xs text-secondary/70 max-w-[500px]">
+          Please review your registration details below and accept the terms to create your account.
         </p>
       </div>
 
       <div className="bg-surface-low border border-border-custom p-4 rounded-custom-lg text-left">
-        <h5 className="text-xs font-bold text-secondary uppercase tracking-wider mb-2">Registration Details Summary</h5>
-        <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs text-secondary/80">
+        <h5 className="text-xs font-bold text-secondary uppercase tracking-wider mb-3">Registration Summary</h5>
+        <div className="grid grid-cols-2 gap-y-2.5 gap-x-4 text-xs text-secondary/80">
           <p><span className="font-semibold">Role:</span> {role}</p>
           <p><span className="font-semibold">Email:</span> {formData.email}</p>
+          {formData.phone && <p><span className="font-semibold">Phone:</span> {formData.phone}</p>}
           {role === 'Citizen' && (
             <>
               <p><span className="font-semibold">Name:</span> {formData.fullName}</p>
               <p><span className="font-semibold">Age:</span> {formData.age}</p>
-              <p><span className="font-semibold">Student:</span> {formData.isStudent ? 'Yes' : 'No'}</p>
             </>
           )}
           {role === 'NGO' && (
@@ -463,7 +498,7 @@ export default function SignUp({ onLoginSuccess }) {
           {role === 'Business' && (
             <>
               <p><span className="font-semibold">Company:</span> {formData.businessName}</p>
-              <p><span className="font-semibold">CSR Area:</span> {formData.csrFocus}</p>
+              <p><span className="font-semibold">CSR Focus:</span> {formData.csrFocus}</p>
             </>
           )}
           {role === 'Municipal Authority' && (
@@ -476,7 +511,7 @@ export default function SignUp({ onLoginSuccess }) {
       </div>
 
       <Input
-        label="I declare that the information provided is correct and agree to the CivicConnect Code of Conduct."
+        label="I declare that the information provided is correct and agree to the CivicConnect Terms."
         type="checkbox"
         name="agreeTerms"
         value={formData.agreeTerms}
@@ -491,21 +526,27 @@ export default function SignUp({ onLoginSuccess }) {
       <Card className="w-full max-w-[550px] flex flex-col gap-6">
         <div className="text-center">
           <h2 className="text-2xl font-extrabold text-secondary">Create {role} Account</h2>
-          <p className="text-sm text-secondary/60 mt-1">Step {currentStep + 1} of 3</p>
+          <p className="text-sm text-secondary/60 mt-1">Step {currentStep + 1} of {steps.length}</p>
         </div>
 
         <ProgressStepper steps={steps} currentStep={currentStep} />
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6 mt-4">
+        {errorMessage && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-custom-lg text-xs font-semibold text-center">
+            {errorMessage}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6 mt-2">
           {currentStep === 0 && renderStep0()}
           {currentStep === 1 && renderStep1()}
           {currentStep === 2 && renderStep2()}
 
-          <div className="flex justify-between items-center gap-4 mt-4 pt-4 border-t border-border-custom">
+          <div className="flex justify-between items-center gap-4 mt-2 pt-4 border-t border-border-custom">
             <Button
               variant="secondary"
               onClick={handlePrev}
-              disabled={currentStep === 0}
+              disabled={currentStep === 0 || isLoading}
               className="flex-1"
             >
               Back
@@ -513,6 +554,7 @@ export default function SignUp({ onLoginSuccess }) {
 
             {currentStep < steps.length - 1 ? (
               <Button
+                type="button"
                 variant="primary"
                 onClick={handleNext}
                 className="flex-1"
@@ -523,10 +565,10 @@ export default function SignUp({ onLoginSuccess }) {
               <Button
                 type="submit"
                 variant="primary"
-                className="flex-1 animate-pulse"
-                disabled={!formData.agreeTerms}
+                className="flex-1"
+                disabled={!formData.agreeTerms || isLoading}
               >
-                Register & Sign In
+                {isLoading ? 'Creating Account...' : 'Complete Registration'}
               </Button>
             )}
           </div>

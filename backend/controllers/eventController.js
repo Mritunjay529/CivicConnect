@@ -1,151 +1,128 @@
 import { Event } from '../models/Event.js';
-import { User, Citizen, Business } from '../models/User.js';
-import { Notification } from '../models/Notification.js';
-import { RewardActivity } from '../models/RewardActivity.js';
+import { asyncHandler } from '../utils/helpers.js';
 
-// Create Event (NGO/Business)
-export const createEvent = async (req, res, next) => {
-  try {
-    const { title, description, date, type } = req.body;
+/**
+ * @desc    Create a new community event
+ * @route   POST /api/events
+ * @access  Private (NGO, Business, Authority, Admin)
+ */
+export const createEvent = asyncHandler(async (req, res) => {
+  const { title, description, category, location, date, time, sponsoredBy } = req.body;
 
-    const event = await Event.create({
-      title,
-      description,
-      date,
-      type,
-      createdBy: req.user._id
+  if (!title || !description || !location || !date) {
+    return res.status(400).json({
+      success: false,
+      message: 'Title, description, location, and date are required'
     });
-
-    res.status(201).json({ success: true, event });
-  } catch (error) {
-    next(error);
   }
-};
 
-// Get Events (Calendar view, supports date-range)
-export const getEvents = async (req, res, next) => {
-  try {
-    const { startDate, endDate } = req.query;
+  const event = await Event.create({
+    title,
+    description,
+    category: category || 'Civic Engagement',
+    location,
+    date: new Date(date),
+    time: time || '10:00 AM - 01:00 PM',
+    sponsoredBy: sponsoredBy || '',
+    organizer: req.user._id,
+    organizerName: req.user.name || req.user.orgName || req.user.bizName || req.user.department || 'Civic Leader',
+    organizerRole: req.user.role,
+    rsvps: []
+  });
 
-    let query = {};
-    if (startDate || endDate) {
-      query.date = {};
-      if (startDate) query.date.$gte = new Date(startDate);
-      if (endDate) query.date.$lte = new Date(endDate);
+  res.status(201).json({
+    success: true,
+    message: 'Event published successfully',
+    data: event
+  });
+});
+
+/**
+ * @desc    Get upcoming events (optionally filtered by ?month=YYYY-MM)
+ * @route   GET /api/events
+ * @access  Private
+ */
+export const getEvents = asyncHandler(async (req, res) => {
+  const { month } = req.query;
+
+  const query = {};
+
+  if (month) {
+    // Expected format: YYYY-MM (e.g., 2026-08) or month index/name
+    let year, monthIndex;
+    if (month.includes('-')) {
+      const parts = month.split('-');
+      year = parseInt(parts[0], 10);
+      monthIndex = parseInt(parts[1], 10) - 1;
+    } else {
+      year = new Date().getFullYear();
+      monthIndex = parseInt(month, 10) - 1;
     }
 
-    const list = await Event.find(query)
-      .populate('createdBy', 'name orgName businessName')
-      .sort({ date: 1 });
-
-    res.status(200).json({ success: true, count: list.length, events: list });
-  } catch (error) {
-    next(error);
+    if (!isNaN(year) && !isNaN(monthIndex)) {
+      const startDate = new Date(year, monthIndex, 1);
+      const endDate = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
   }
-};
 
-// Citizen RSVPs to an event
-export const rsvpEvent = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+  const events = await Event.find(query)
+    .populate('organizer', 'name orgName bizName department')
+    .sort({ date: 1 });
 
-    const event = await Event.findById(id);
-    if (!event) {
-      return res.status(404).json({ success: false, message: 'Event not found' });
-    }
+  // Map events to include whether logged-in user has RSVP'd
+  const userIdStr = req.user ? req.user._id.toString() : null;
+  const formattedEvents = events.map((evt) => {
+    const obj = evt.toObject();
+    obj.rsvpCount = evt.rsvps.length;
+    obj.hasRsvp = userIdStr ? evt.rsvps.some((id) => id.toString() === userIdStr) : false;
+    return obj;
+  });
 
-    // Check if user has already RSVPed
-    const alreadyRsvped = event.rsvps.some(
-      (userId) => userId.toString() === req.user._id.toString()
-    );
+  res.status(200).json({
+    success: true,
+    count: formattedEvents.length,
+    data: formattedEvents
+  });
+});
 
-    if (alreadyRsvped) {
-      return res.status(400).json({ success: false, message: 'You have already RSVPed to this community event' });
-    }
+/**
+ * @desc    Toggle RSVP for an event
+ * @route   POST /api/events/:id/rsvp
+ * @access  Private
+ */
+export const toggleRsvp = asyncHandler(async (req, res) => {
+  const event = await Event.findById(req.params.id);
 
+  if (!event) {
+    return res.status(404).json({
+      success: false,
+      message: 'Event not found'
+    });
+  }
+
+  const userIdStr = req.user._id.toString();
+  const existingIndex = event.rsvps.findIndex((id) => id.toString() === userIdStr);
+
+  let isRsvpd = false;
+  if (existingIndex > -1) {
+    // Remove RSVP
+    event.rsvps.splice(existingIndex, 1);
+    isRsvpd = false;
+  } else {
+    // Add RSVP
     event.rsvps.push(req.user._id);
-    await event.save();
-
-    // If citizen, award +15 points for RSVPing to event
-    if (req.user.role === 'citizen') {
-      const citizen = await Citizen.findById(req.user._id);
-      if (citizen) {
-        citizen.points += 15;
-        
-        // Earn Badge "Voice of Change" if attended/RSVPed >= 2 events
-        const rsvpCount = await Event.countDocuments({ rsvps: req.user._id });
-        let badgeName = null;
-        if (rsvpCount >= 2 && !citizen.badges.some(b => b.name === 'Voice of Change')) {
-          badgeName = 'Voice of Change';
-          citizen.badges.push({
-            name: 'Voice of Change',
-            icon: 'campaign',
-            description: 'RSVPed to 2+ public town halls / community events'
-          });
-        }
-        await citizen.save();
-
-        // Log Reward activity
-        await RewardActivity.create({
-          userId: citizen._id,
-          points: 15,
-          reason: `RSVPed to event: "${event.title}"`,
-          badgeEarned: badgeName
-        });
-      }
-    }
-
-    // Trigger Notification for the organizer
-    await Notification.create({
-      userId: event.createdBy,
-      title: 'New Event RSVP',
-      message: `User "${req.user.name || req.user.email}" registered to attend "${event.title}".`
-    });
-
-    // Notify user
-    await Notification.create({
-      userId: req.user._id,
-      title: 'RSVP Confirmed',
-      message: `You are registered to attend "${event.title}". You earned 15 reward points!`
-    });
-
-    res.status(200).json({ success: true, message: 'RSVP successful', event });
-  } catch (error) {
-    next(error);
+    isRsvpd = true;
   }
-};
 
-// Business Sponsors an event
-export const sponsorEvent = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+  await event.save();
 
-    const event = await Event.findById(id);
-    if (!event) {
-      return res.status(404).json({ success: false, message: 'Event not found' });
+  res.status(200).json({
+    success: true,
+    message: isRsvpd ? 'RSVP confirmed' : 'RSVP cancelled',
+    data: {
+      hasRsvp: isRsvpd,
+      rsvpCount: event.rsvps.length
     }
-
-    if (event.sponsoredBy) {
-      return res.status(400).json({ success: false, message: 'This event is already corporate sponsored' });
-    }
-
-    const business = await Business.findById(req.user._id);
-    event.sponsoredBy = business.businessName;
-    await event.save();
-
-    // Notify Event Organizer
-    await Notification.create({
-      userId: event.createdBy,
-      title: 'Corporate Sponsorship Secured',
-      message: `Corporate entity "${business.businessName}" sponsored your event "${event.title}" for $5,000.`
-    });
-
-    res.status(200).json({ 
-      success: true, 
-      message: `Sponsorship confirmed for "${event.title}" by ${business.businessName}`,
-      event 
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  });
+});

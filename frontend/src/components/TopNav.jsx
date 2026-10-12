@@ -97,10 +97,12 @@ export default function TopNav({ user, onLogout, notificationCount = 0 }) {
               <div className="flex items-center gap-3 pl-3 border-l border-border-custom">
                 <Link to="/profile" className="flex items-center gap-2 group">
                   <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm uppercase">
-                    {user.name.charAt(0)}
+                    {(user.name || user.orgName || user.businessName || user.email || 'U').charAt(0)}
                   </div>
                   <div className="hidden xl:block text-left">
-                    <p className="text-xs font-semibold text-secondary group-hover:text-primary transition-colors leading-none">{user.name}</p>
+                    <p className="text-xs font-semibold text-secondary group-hover:text-primary transition-colors leading-none">
+                      {user.name || user.orgName || user.businessName || user.email || 'User'}
+                    </p>
                     <span className="text-[10px] text-secondary/60 leading-none">{user.role}</span>
                   </div>
                 </Link>
