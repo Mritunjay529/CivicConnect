@@ -2,7 +2,6 @@ import PageShell from '../components/PageShell.jsx'
 import Card from '../components/Card.jsx'
 
 const notifications = [
-  { icon: 'check_circle', title: 'Your complaint was resolved', meta: 'Pothole near MG Road · 1h ago', tone: 'text-success' },
   { icon: 'event', title: 'Reminder: Tree plantation drive tomorrow', meta: '9 AM · City Park', tone: 'text-primary' },
   { icon: 'workspace_premium', title: 'You earned a new certificate', meta: 'Clean-up campaign completion · 2d ago', tone: 'text-primary' },
 ]

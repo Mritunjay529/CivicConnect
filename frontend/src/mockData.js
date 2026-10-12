@@ -13,93 +13,12 @@ export const initialUser = {
     { id: 'b3', name: 'Voice of Change', icon: 'campaign', description: 'Attended a public town hall session' }
   ],
   activityHistory: [
-    { id: 'act-1', type: 'report', title: 'Open Pothole on Oak Ave', date: '2026-08-01', status: 'Resolved' },
     { id: 'act-2', type: 'volunteer', title: 'Community Park Cleanup', date: '2026-07-28', status: 'Attended' },
     { id: 'act-3', type: 'rsvp', title: 'Green Energy Forum', date: '2026-07-15', status: 'Attended' }
   ]
 };
 
-export const initialComplaints = [
-  {
-    id: 'comp-101',
-    title: 'Hazardous Pothole on Main Street',
-    description: 'A deep pothole has formed in the middle lane of Main St near the 5th Avenue crossing. It poses a high risk to passing motorcyclists and vehicles, and cars are swerving to avoid it.',
-    imageUrl: 'https://images.unsplash.com/photo-1515162305285-0293e4767cc2?auto=format&fit=crop&w=600&q=80',
-    category: 'Road Repair',
-    location: '5th Ave & Main St, Metropolis',
-    status: 'In Progress', // Pending, In Progress, Resolved
-    priority: 'High', // High, Medium, Low
-    date: '2026-08-02',
-    reportedBy: 'Aria Chen',
-    updates: [
-      { date: '2026-08-02', text: 'Issue reported and AI prioritized as High.' },
-      { date: '2026-08-03', text: 'Municipal Roadworks Division assigned.' }
-    ]
-  },
-  {
-    id: 'comp-102',
-    title: 'Broken Streetlights in Central Park Path',
-    description: 'Three consecutive solar streetlights along the eastern walking trail of Central Park are completely out. The path is pitch-black after 7 PM, creating safety concerns for night runners.',
-    imageUrl: 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?auto=format&fit=crop&w=600&q=80',
-    category: 'Street Lighting',
-    location: 'East Trail, Central Park',
-    status: 'Pending',
-    priority: 'Medium',
-    date: '2026-08-03',
-    reportedBy: 'Marcus Vance',
-    updates: [
-      { date: '2026-08-03', text: 'Issue registered. AI classification: Street Lighting.' }
-    ]
-  },
-  {
-    id: 'comp-103',
-    title: 'Illegal Garbage Dumping behind Community Center',
-    description: 'Large piles of plastic trash, wooden construction scrap, and broken appliances have been dumped in the alleyway behind the Community Center. Odors are starting to develop.',
-    imageUrl: 'https://images.unsplash.com/photo-1611284446314-60a58ac0deb9?auto=format&fit=crop&w=600&q=80',
-    category: 'Waste Management',
-    location: '12 Civic Plaza (Back Alley), Metropolis',
-    status: 'Resolved',
-    priority: 'High',
-    date: '2026-07-29',
-    reportedBy: 'Sarah Jenkins',
-    updates: [
-      { date: '2026-07-29', text: 'Report received.' },
-      { date: '2026-07-30', text: 'Sanitation unit dispatched for cleanup.' },
-      { date: '2026-07-31', text: 'Cleanup completed and verified. Reward points issued to reporter.' }
-    ]
-  },
-  {
-    id: 'comp-104',
-    title: 'Overflowing Sewage Drain near Market Square',
-    description: 'A storm drain appears to be backed up, releasing foul-smelling waste water onto the pavement near the fruit stalls. It is a health hazard and attracts pests.',
-    imageUrl: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=600&q=80',
-    category: 'Sanitation & Sewage',
-    location: 'Market Square East Side',
-    status: 'Pending',
-    priority: 'High',
-    date: '2026-08-03',
-    reportedBy: 'Rohan Gupta',
-    updates: [
-      { date: '2026-08-03', text: 'Issue flagged by local shopkeepers.' }
-    ]
-  },
-  {
-    id: 'comp-105',
-    title: 'Faded Pedestrian Crossing on Elm Road',
-    description: 'The white zebra stripes at the pedestrian crossing right in front of Elm Road Elementary School have almost completely faded. Cars do not slow down and it is dangerous for children crossing.',
-    imageUrl: 'https://images.unsplash.com/photo-1473163928189-364b2c4e1135?auto=format&fit=crop&w=600&q=80',
-    category: 'Traffic Signage',
-    location: '204 Elm Road, Metropolis',
-    status: 'In Progress',
-    priority: 'Medium',
-    date: '2026-08-01',
-    reportedBy: 'Aria Chen',
-    updates: [
-      { date: '2026-08-01', text: 'Report submitted.' },
-      { date: '2026-08-02', text: 'Scheduling division added to repaint queue.' }
-    ]
-  }
-];
+export const initialComplaints = [];
 
 export const initialOpportunities = [
   {
@@ -221,24 +140,10 @@ export const initialInitiatives = [
 export const initialNotifications = [
   {
     id: 'notif-1',
-    title: 'Issue Resolved!',
-    message: 'Your report "Illegal Garbage Dumping behind Community Center" has been cleaned up. You earned 50 Reward Points!',
-    date: '2026-07-31',
-    read: false
-  },
-  {
-    id: 'notif-2',
     title: 'New Volunteer Work Near You',
     message: 'GreenEarth Network posted "Community Tree Planting Drive" matching your interests in Environment.',
     date: '2026-08-02',
     read: false
-  },
-  {
-    id: 'notif-3',
-    title: 'Status Update',
-    message: 'Municipal Works changed the status of "Hazardous Pothole on Main Street" to In Progress.',
-    date: '2026-08-02',
-    read: true
   }
 ];
 

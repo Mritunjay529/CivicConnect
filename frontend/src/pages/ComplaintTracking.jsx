@@ -8,14 +8,14 @@ export default function ComplaintTracking({ user, complaints = [] }) {
   const [onlyMine, setOnlyMine] = useState(false);
   const [selectedId, setSelectedId] = useState(complaints[0]?.id || null);
 
-  const selectedComplaint = complaints.find(c => c.id === selectedId);
-
   // Apply filters
   const filteredComplaints = complaints.filter(c => {
     const statusMatch = filterStatus === 'All' || c.status === filterStatus;
     const userMatch = !onlyMine || (user && c.reportedBy === user.name);
     return statusMatch && userMatch;
   });
+
+  const selectedComplaint = filteredComplaints.find(c => c.id === selectedId) || filteredComplaints[0] || null;
 
   return (
     <div className="max-w-[1280px] mx-auto px-6 py-8 flex flex-col gap-6 pb-20">

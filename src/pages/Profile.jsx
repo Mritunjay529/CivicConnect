@@ -36,7 +36,6 @@ export default function Profile() {
       <div className="flex flex-col gap-3 mb-8">
         {[
           { title: 'Completed: Tree plantation drive', date: '2 weeks ago' },
-          { title: 'Reported: Pothole near MG Road', date: '3 weeks ago' },
         ].map((a) => (
           <Card key={a.title} className="flex items-center justify-between">
             <p className="text-sm text-on-surface">{a.title}</p>

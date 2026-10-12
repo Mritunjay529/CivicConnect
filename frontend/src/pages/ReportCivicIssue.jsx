@@ -55,16 +55,7 @@ export default function ReportCivicIssue({ user, onAddComplaint }) {
         setImagePreview(reader.result);
       };
       reader.readAsDataURL(file);
-    } else {
-      // Mock photo upload if file selector cancel
-      setImagePreview('https://images.unsplash.com/photo-1599740831146-7a69476b5270?auto=format&fit=crop&w=600&q=80');
-      setImageName('mock_civic_issue_pothole.jpg');
     }
-  };
-
-  const triggerMockPhoto = () => {
-    setImagePreview('https://images.unsplash.com/photo-1599740831146-7a69476b5270?auto=format&fit=crop&w=600&q=80');
-    setImageName('civic_issue_sample.jpg');
   };
 
   const handleAutoLocation = () => {
@@ -261,9 +252,6 @@ export default function ReportCivicIssue({ user, onAddComplaint }) {
                     >
                       Browse Device
                     </label>
-                    <Button variant="secondary" onClick={triggerMockPhoto} className="h-10 min-h-0 text-xs px-3">
-                      Use Dummy Photo
-                    </Button>
                   </div>
                 </>
               )}
