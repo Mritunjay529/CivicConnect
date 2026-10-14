@@ -81,7 +81,8 @@ const baseLayout = (title, bodyContent) => {
 
 // 1. Signup Welcome Email Template
 export const signupWelcomeTemplate = (user) => {
-  const isAuthority = user.role === 'authority';
+  const roleNorm = (user.role || '').toLowerCase();
+  const isAuthority = roleNorm === 'authority' || roleNorm === 'municipal authority';
   const displayName = user.name || user.orgName || user.bizName || user.department || 'Civic Member';
 
   if (isAuthority) {
@@ -102,18 +103,18 @@ export const signupWelcomeTemplate = (user) => {
     citizen: 'Citizen Advocate',
     ngo: 'NGO Partner',
     business: 'Corporate CSR Partner'
-  }[user.role] || 'Member';
+  }[roleNorm] || 'Civic Member';
 
   const content = `
     <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">Welcome to CivicConnect!</h2>
     <p>Hello <strong>${displayName}</strong>,</p>
     <p>Welcome to CivicConnect as a verified <strong>${roleLabel}</strong>. Your account is active and ready to make an impact in your local community.</p>
     <ul style="padding-left: 20px; margin: 16px 0; color: #475569;">
-      ${user.role === 'citizen' ? `
+      ${roleNorm === 'citizen' ? `
         <li>Report civic issues and track resolutions in real-time</li>
         <li>Earn Civic reward points and badges for verified contributions</li>
         <li>Discover and join local NGO volunteer opportunities</li>
-      ` : user.role === 'ngo' ? `
+      ` : roleNorm === 'ngo' ? `
         <li>Post community volunteer opportunities and drives</li>
         <li>Review volunteer applications and track attendance</li>
         <li>Collaborate with corporate sponsors on CSR initiatives</li>
@@ -278,6 +279,109 @@ export const authorityStatusTemplate = (user, status) => {
     `}
   `;
   return baseLayout(`CivicConnect Authority Status: ${isApproved ? 'Approved' : 'Rejected'}`, content);
+};
+
+// 8. NGO: New Volunteer Application Received Notification
+export const volunteerApplicationReceivedTemplate = (organizer, opportunity, applicant) => {
+  const applicantName = applicant.name || applicant.fullName || 'Citizen Volunteer';
+  const applicantEmail = applicant.email || 'N/A';
+  const applicantPhone = applicant.phone || 'N/A';
+
+  const content = `
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">New Volunteer Application Received!</h2>
+    <p>Hello <strong>${organizer.name || organizer.orgName || 'Organizer'}</strong>,</p>
+    <p>A new volunteer has applied to join your community drive <strong>"${opportunity.title}"</strong>.</p>
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;">
+      <h3 style="margin: 0 0 10px; font-size: 15px; color: #0f172a;">Applicant Details:</h3>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Name:</strong> ${applicantName}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Email:</strong> ${applicantEmail}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Phone:</strong> ${applicantPhone}</p>
+      <p style="margin: 0; font-size: 14px; color: #475569;"><strong>Applied Date:</strong> ${new Date().toLocaleDateString()}</p>
+    </div>
+    <div style="text-align: center; margin: 24px 0;">
+      <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/ngo-dashboard" style="background-color: #0f766e; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
+        Review in NGO Dashboard
+      </a>
+    </div>
+    <p style="font-size: 13px; color: #64748b;">You can accept or reject this application directly from your volunteer management queue.</p>
+  `;
+  return baseLayout(`New Volunteer Application: ${opportunity.title}`, content);
+};
+
+// 9. Citizen: Volunteer Application Submitted Confirmation
+export const volunteerApplicationSubmittedTemplate = (applicant, opportunity) => {
+  const content = `
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">Application Submitted Successfully</h2>
+    <p>Hello <strong>${applicant.name || 'Volunteer'}</strong>,</p>
+    <p>Thank you for offering your time and skills! We have received your application for:</p>
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;">
+      <h3 style="margin: 0 0 8px; font-size: 16px; color: #0f172a;">${opportunity.title}</h3>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Organizer:</strong> ${opportunity.creatorName || 'NGO Partner'}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Date:</strong> ${opportunity.date ? new Date(opportunity.date).toLocaleDateString() : 'TBA'}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Location:</strong> ${opportunity.location || 'Local'}</p>
+      <div style="margin-top: 10px; display: inline-block; background-color: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 700;">
+        Status: Pending Organizer Review
+      </div>
+    </div>
+    <p style="font-size: 14px; color: #475569;">The NGO coordinator will review your registration and you will receive an email notification as soon as a decision is made.</p>
+  `;
+  return baseLayout(`Application Confirmation: ${opportunity.title}`, content);
+};
+
+// 10. Citizen: Volunteer Drive Completion & Certificate
+export const volunteerCompletedCertificateTemplate = (volunteer, opportunity) => {
+  const content = `
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f766e;">🎉 Congratulations on Completing the Volunteer Drive!</h2>
+    <p>Hello <strong>${volunteer.name || 'Volunteer'}</strong>,</p>
+    <p>The organizer has marked your participation in <strong>"${opportunity.title}"</strong> as successfully completed!</p>
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 18px; margin: 18px 0; text-align: center;">
+      <span style="font-size: 42px;">🏆</span>
+      <h3 style="margin: 8px 0 4px; font-size: 18px; color: #166534;">Certificate of Appreciation Issued</h3>
+      <p style="margin: 0; font-size: 14px; color: #15803d;"><strong>+50 Civic Reward Points</strong> credited to your account!</p>
+    </div>
+    <p>Thank you for contributing your valuable time to improve our neighborhood. You can view your updated points and earned badges anytime in your profile.</p>
+    <div style="text-align: center; margin: 24px 0;">
+      <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/profile" style="background-color: #0f766e; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
+        View My Profile & Badges
+      </a>
+    </div>
+  `;
+  return baseLayout(`Certificate of Participation: ${opportunity.title}`, content);
+};
+
+// 11. Business: CSR Initiative Registered Confirmation
+export const csrInitiativeCreatedTemplate = (businessUser, initiative) => {
+  const content = `
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">CSR Initiative Published Successfully</h2>
+    <p>Hello <strong>${businessUser.name || businessUser.bizName || 'Corporate Partner'}</strong>,</p>
+    <p>Your Corporate Social Responsibility (CSR) initiative has been published on CivicConnect:</p>
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;">
+      <h3 style="margin: 0 0 8px; font-size: 16px; color: #0f172a;">${initiative.title}</h3>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Allocated Budget:</strong> ${initiative.budget || 'N/A'}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Target Impact Metric:</strong> ${initiative.impactMetric || 'Community engagement'}</p>
+      <p style="margin: 0; font-size: 14px; color: #475569;"><strong>Estimated Reach:</strong> ${initiative.peopleImpacted || 0} Citizens</p>
+    </div>
+    <p>Thank you for empowering our municipal ecosystem through corporate social responsibility.</p>
+  `;
+  return baseLayout(`CSR Initiative Registered: ${initiative.title}`, content);
+};
+
+// 12. Citizen / User: Event RSVP Confirmation
+export const eventRsvpConfirmationTemplate = (user, event) => {
+  const content = `
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">Event RSVP Confirmed!</h2>
+    <p>Hello <strong>${user.name || 'Civic Member'}</strong>,</p>
+    <p>Your spot has been reserved for the following community event:</p>
+    <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;">
+      <h3 style="margin: 0 0 8px; font-size: 16px; color: #0f172a;">${event.title}</h3>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Date:</strong> ${event.date ? new Date(event.date).toLocaleDateString() : 'TBA'}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Time:</strong> ${event.time || '10:00 AM'}</p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #475569;"><strong>Location:</strong> ${event.location || 'Local Metropolis'}</p>
+      <p style="margin: 0; font-size: 14px; color: #475569;"><strong>Organizer:</strong> ${event.organizerName || 'Community Team'}</p>
+    </div>
+    <p>We look forward to seeing you there!</p>
+  `;
+  return baseLayout(`RSVP Confirmation: ${event.title}`, content);
 };
 
 /**

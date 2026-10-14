@@ -11,31 +11,50 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [appliedOppTitle, setAppliedOppTitle] = useState('');
 
-  // Extract unique locations and categories for filter options
-  const categories = ['All', ...new Set(opportunities.map(o => o.category))];
-  const locations = ['All', ...new Set(opportunities.map(o => o.location.split(',')[0].trim()))];
+  const [isApplying, setIsApplying] = useState(false);
 
-  const handleApply = (opp) => {
+  // Extract unique locations and categories for filter options
+  const categories = ['All', ...new Set(opportunities.map((o) => o.category).filter(Boolean))];
+  const locations = [
+    'All',
+    ...new Set(
+      opportunities
+        .map((o) => (o.location ? o.location.split(',')[0].trim() : ''))
+        .filter(Boolean)
+    )
+  ];
+
+  const handleApply = async (opp) => {
     if (!user) {
       alert('Please log in as a Citizen to apply for volunteering opportunities.');
       return;
     }
-    if (user.role !== 'Citizen') {
+    const roleLower = (user.role || '').toLowerCase();
+    if (roleLower !== 'citizen') {
       alert('Only Citizen accounts can sign up for volunteer positions.');
       return;
     }
 
-    onApplyOpportunity(opp.id, user.name);
-    setAppliedOppTitle(opp.title);
-    setShowSuccessModal(true);
+    setIsApplying(true);
+    try {
+      await onApplyOpportunity(opp.id || opp._id, user.name);
+      setAppliedOppTitle(opp.title);
+      setShowSuccessModal(true);
+    } catch (err) {
+      alert('Failed to submit application: ' + (err.message || 'Please try again.'));
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   // Filter
-  const filteredOpps = opportunities.filter(opp => {
-    const matchesSearch = opp.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          opp.description.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredOpps = opportunities.filter((opp) => {
+    const titleMatch = (opp.title || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const descMatch = (opp.description || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = titleMatch || descMatch;
     const matchesCategory = selectedCategory === 'All' || opp.category === selectedCategory;
-    const matchesLocation = selectedLocation === 'All' || opp.location.includes(selectedLocation);
+    const matchesLocation =
+      selectedLocation === 'All' || (opp.location || '').includes(selectedLocation);
     return matchesSearch && matchesCategory && matchesLocation;
   });
 
@@ -86,16 +105,39 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
           </div>
         ) : (
           filteredOpps.map((opp) => {
-            const hasApplied = user && opp.volunteers.includes(user.name);
-            const isFull = opp.appliedCount >= opp.capacity;
+            const oppId = opp.id || opp._id;
+            const userId = (user?._id || user?.id)?.toString();
+            const hasApplied =
+              user &&
+              ((opp.volunteers || []).includes(user.name) ||
+                (opp.applications || []).some(
+                  (a) =>
+                    (a.applicant?._id || a.applicant)?.toString() === userId ||
+                    a.applicantName === user.name
+                ));
+            const appliedCount =
+              opp.appliedCount !== undefined
+                ? opp.appliedCount
+                : opp.applications?.length || 0;
+            const capacity = opp.capacity || 10;
+            const isFull = appliedCount >= capacity;
 
             return (
-              <Card key={opp.id} className="flex flex-col gap-4 justify-between h-full hover:border-primary/50 transition-all duration-200">
+              <Card
+                key={oppId}
+                className="flex flex-col gap-4 justify-between h-full hover:border-primary/50 transition-all duration-200"
+              >
                 <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-start gap-2">
-                    <Badge variant={
-                      opp.category === 'Environment' ? 'success' : opp.category === 'Social Support' ? 'warning' : 'info'
-                    }>
+                    <Badge
+                      variant={
+                        opp.category === 'Environment'
+                          ? 'success'
+                          : opp.category === 'Social Support'
+                          ? 'warning'
+                          : 'info'
+                      }
+                    >
                       {opp.category}
                     </Badge>
                     <span className="text-xs text-secondary/50 font-semibold flex items-center gap-1">
@@ -123,7 +165,7 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
                     </p>
                     <p className="flex items-center gap-1">
                       <span className="material-symbols-outlined text-[16px] text-primary">group</span>
-                      <span className="font-semibold text-secondary">Volunteers Joined:</span> {opp.appliedCount} / {opp.capacity} ({opp.capacity - opp.appliedCount} spots left)
+                      <span className="font-semibold text-secondary">Volunteers Joined:</span> {appliedCount} / {capacity} ({Math.max(0, capacity - appliedCount)} spots left)
                     </p>
                   </div>
                 </div>
@@ -138,10 +180,10 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
                     <Button
                       variant="primary"
                       onClick={() => handleApply(opp)}
-                      disabled={isFull}
+                      disabled={isFull || isApplying}
                       className="w-full sm:w-auto"
                     >
-                      {isFull ? 'Opportunity Full' : 'Apply Now'}
+                      {isFull ? 'Opportunity Full' : isApplying ? 'Submitting...' : 'Apply Now'}
                     </Button>
                   )}
                 </div>

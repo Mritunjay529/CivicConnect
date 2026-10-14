@@ -53,13 +53,17 @@ export default function LogIn({ onLoginSuccess }) {
       if (response.ok && result.success && result.data) {
         loggedInUser = {
           ...result.data,
+          id: result.data._id || result.data.id,
+          _id: result.data._id || result.data.id,
+          name: result.data.name || result.data.orgName || email.split('@')[0],
           role: role,
-          points: result.data.points ?? 120,
+          points: result.data.rewardPoints ?? result.data.points ?? 120,
           activityHistory: result.data.activityHistory || []
         };
         if (result.token) {
           localStorage.setItem('civic_token', result.token);
         }
+        localStorage.setItem('civic_user', JSON.stringify(loggedInUser));
       } else if (!response.ok && result.message) {
         setError(result.message);
         setIsLoading(false);
@@ -68,6 +72,7 @@ export default function LogIn({ onLoginSuccess }) {
     } catch (fetchErr) {
       // Fallback to local session if backend API is unreachable
       console.warn('Backend login unavailable, proceeding with local credentials:', fetchErr);
+      localStorage.setItem('civic_user', JSON.stringify(loggedInUser));
     }
 
     setIsLoading(false);

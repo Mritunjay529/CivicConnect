@@ -139,6 +139,25 @@ const opportunitySchema = new mongoose.Schema(
   }
 );
 
+opportunitySchema.set('toJSON', { virtuals: true });
+opportunitySchema.set('toObject', { virtuals: true });
+
+opportunitySchema.virtual('appliedCount').get(function () {
+  return this.applications ? this.applications.length : 0;
+});
+
+opportunitySchema.virtual('volunteers').get(function () {
+  return this.applications ? this.applications.map((a) => a.applicantName) : [];
+});
+
+opportunitySchema.virtual('ngoName').get(function () {
+  return this.creatorName || '';
+});
+
+opportunitySchema.virtual('ngoId').get(function () {
+  return this.creator ? this.creator.toString() : '';
+});
+
 opportunitySchema.index({ type: 1, date: 1, category: 1 });
 
 export const Opportunity = mongoose.model('Opportunity', opportunitySchema);

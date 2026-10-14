@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import TopNav from './components/TopNav';
 import BottomNav from './components/BottomNav';
+import api, { getStoredUser, setStoredUser, clearAuth } from './services/api';
 
 // Pages imports
 import LandingPage from './pages/LandingPage';
@@ -30,8 +31,8 @@ import {
 } from './mockData';
 
 export default function App() {
-  // Global Mock States
-  const [currentUser, setCurrentUser] = useState(null); // Default starts logged out
+  // Global States (seeded with fallback mockData, synced with backend database)
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser());
   const [complaints, setComplaints] = useState(initialComplaints);
   const [opportunities, setOpportunities] = useState(initialOpportunities);
   const [events, setEvents] = useState(initialEvents);
@@ -39,13 +40,93 @@ export default function App() {
   const [applications, setApplications] = useState(initialApplications);
   const [notifications, setNotifications] = useState(initialNotifications);
 
+  // Sync opportunities with backend database on load and changes
+  const refreshOpportunities = async () => {
+    try {
+      const data = await api.getOpportunities();
+      if (data && data.length > 0) {
+        setOpportunities(data);
+      }
+    } catch (err) {
+      console.warn('Backend opportunities fetch error, using local state:', err);
+    }
+  };
+
+  useEffect(() => {
+    refreshOpportunities();
+  }, []);
+
+  // Sync user profile on mount
+  useEffect(() => {
+    const syncUser = async () => {
+      try {
+        const me = await api.getMe();
+        if (me) {
+          const roleMap = {
+            citizen: 'Citizen',
+            ngo: 'NGO',
+            business: 'Business',
+            authority: 'Municipal Authority'
+          };
+          const formatted = {
+            ...me,
+            id: me._id || me.id,
+            role: roleMap[me.role?.toLowerCase()] || me.role,
+            points: me.rewardPoints ?? me.points ?? 120,
+            activityHistory: me.activityHistory || []
+          };
+          setCurrentUser(formatted);
+          setStoredUser(formatted);
+        }
+      } catch (err) {
+        console.warn('User sync check:', err);
+      }
+    };
+    syncUser();
+  }, []);
+
+  // Load NGO applications if user is an NGO
+  useEffect(() => {
+    const fetchNgoApps = async () => {
+      const roleLower = (currentUser?.role || '').toLowerCase();
+      if (roleLower === 'ngo' || roleLower === 'admin') {
+        try {
+          const apps = await api.getNgoApplications();
+          if (apps) {
+            setApplications(apps);
+          }
+        } catch (err) {
+          console.warn('NGO applications fetch error:', err);
+        }
+      }
+    };
+    fetchNgoApps();
+  }, [currentUser]);
+
   // Authentication Handlers
   const handleLoginSuccess = (userObj) => {
-    setCurrentUser(userObj);
+    const roleMap = {
+      citizen: 'Citizen',
+      ngo: 'NGO',
+      business: 'Business',
+      authority: 'Municipal Authority'
+    };
+    const formatted = {
+      ...userObj,
+      id: userObj._id || userObj.id,
+      role: roleMap[userObj.role?.toLowerCase()] || userObj.role,
+      points: userObj.rewardPoints ?? userObj.points ?? 120,
+      activityHistory: userObj.activityHistory || []
+    };
+    setCurrentUser(formatted);
+    setStoredUser(formatted);
+    refreshOpportunities();
   };
 
   const handleLogout = () => {
+    clearAuth();
     setCurrentUser(null);
+    refreshOpportunities();
   };
 
   // 1. Report Civic Issue handler
@@ -133,21 +214,30 @@ export default function App() {
   };
 
   // 3. Citizen Apply for Volunteer opportunity handler
-  const handleApplyOpportunity = (oppId, citizenName) => {
-    setOpportunities((prev) =>
-      prev.map((o) => {
-        if (o.id === oppId) {
-          return {
-            ...o,
-            appliedCount: o.appliedCount + 1,
-            volunteers: [...o.volunteers, citizenName]
-          };
-        }
-        return o;
-      })
-    );
+  const handleApplyOpportunity = async (oppId, citizenName) => {
+    let updatedOpp = null;
+    try {
+      updatedOpp = await api.applyToOpportunity(oppId);
+      setOpportunities((prev) =>
+        prev.map((o) => (o.id === oppId || o._id === oppId ? updatedOpp : o))
+      );
+    } catch (err) {
+      console.warn('Backend apply error, using local fallback:', err);
+      setOpportunities((prev) =>
+        prev.map((o) => {
+          if (o.id === oppId || o._id === oppId) {
+            return {
+              ...o,
+              appliedCount: (o.appliedCount || 0) + 1,
+              volunteers: [...(o.volunteers || []), citizenName]
+            };
+          }
+          return o;
+        })
+      );
+    }
 
-    const targetOpp = opportunities.find((o) => o.id === oppId);
+    const targetOpp = opportunities.find((o) => o.id === oppId || o._id === oppId);
     const today = new Date().toISOString().split('T')[0];
 
     // Create entry in application tracker list
@@ -163,8 +253,9 @@ export default function App() {
 
     // Log to citizen activity
     if (currentUser) {
-      setCurrentUser((prev) => ({
-        ...prev,
+      const updatedUser = {
+        ...currentUser,
+        points: (currentUser.points || 0) + 10,
         activityHistory: [
           {
             id: 'act-' + Math.floor(Math.random() * 1000),
@@ -173,20 +264,33 @@ export default function App() {
             date: today,
             status: 'Applied'
           },
-          ...prev.activityHistory
+          ...(currentUser.activityHistory || [])
         ]
-      }));
+      };
+      setCurrentUser(updatedUser);
+      setStoredUser(updatedUser);
     }
+
+    // Refresh data in background
+    refreshOpportunities();
   };
 
   // 4. NGO Approve/Reject applications handler
-  const handleUpdateApplicationStatus = (appId, newStatus) => {
+  const handleUpdateApplicationStatus = async (appId, newStatus, oppId) => {
+    try {
+      await api.updateApplicationStatus(oppId, appId, newStatus);
+    } catch (err) {
+      console.warn('Backend update application status error:', err);
+    }
+
     setApplications((prev) =>
-      prev.map((app) => (app.id === appId ? { ...app, status: newStatus } : app))
+      prev.map((app) => (app.id === appId || app._id === appId ? { ...app, status: newStatus } : app))
     );
 
+    refreshOpportunities();
+
     // Notify citizen if names match
-    const targetApp = applications.find(a => a.id === appId);
+    const targetApp = applications.find((a) => a.id === appId || a._id === appId);
     if (targetApp) {
       const today = new Date().toISOString().split('T')[0];
       const newNotif = {
@@ -200,23 +304,41 @@ export default function App() {
 
       // If approved, update user activity status
       if (newStatus === 'Approved' && currentUser && currentUser.name === targetApp.citizenName) {
-        setCurrentUser(prev => ({
-          ...prev,
-          points: prev.points + 20, // Small bonus points for volunteer approvals
-          activityHistory: prev.activityHistory.map(act => {
+        const updatedUser = {
+          ...currentUser,
+          points: (currentUser.points || 0) + 20, // Small bonus points for volunteer approvals
+          activityHistory: (currentUser.activityHistory || []).map((act) => {
             if (act.title === targetApp.opportunityTitle) {
               return { ...act, status: 'Approved' };
             }
             return act;
           })
-        }));
+        };
+        setCurrentUser(updatedUser);
+        setStoredUser(updatedUser);
       }
     }
   };
 
   // 5. NGO Create volunteering opportunities
-  const handleAddOpportunity = (newOpp) => {
-    setOpportunities((prev) => [newOpp, ...prev]);
+  const handleAddOpportunity = async (newOpp) => {
+    let created;
+    try {
+      created = await api.createOpportunity(newOpp);
+      setOpportunities((prev) => [created, ...prev]);
+    } catch (err) {
+      console.warn('Backend opportunity create error, using local state:', err);
+      created = {
+        ...newOpp,
+        id: 'opp-' + Math.floor(Math.random() * 1000),
+        appliedCount: 0,
+        volunteers: []
+      };
+      setOpportunities((prev) => [created, ...prev]);
+    }
+    // Refresh to get any updated metadata
+    refreshOpportunities();
+    return created;
   };
 
   // 6. NGO/Business Create events

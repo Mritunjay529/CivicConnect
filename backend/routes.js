@@ -76,10 +76,10 @@ router.get('/complaints/mine', protect, authorize('citizen'), getMyComplaints);
 
 // Authority queries & analytics (MUST be defined before /:id)
 router.get('/complaints/stats', protect, authorize('authority', 'admin'), getStats);
-router.get('/complaints', protect, authorize('authority', 'admin'), getComplaints);
+router.get('/complaints', getComplaints);
 
 // Single complaint operations
-router.get('/complaints/:id', protect, getComplaintById);
+router.get('/complaints/:id', getComplaintById);
 router.patch('/complaints/:id/status', protect, authorize('authority', 'admin'), updateStatus);
 router.post('/complaints/:id/feedback', protect, authorize('citizen'), submitFeedback);
 router.post('/complaints/:id/support', protect, authorize('citizen'), toggleSupport);
@@ -91,7 +91,7 @@ router.post('/complaints/:id/support', protect, authorize('citizen'), toggleSupp
 router.post('/opportunities', protect, authorize('ngo', 'business', 'admin'), createOpportunity);
 
 // Listing & public discovery
-router.get('/opportunities', protect, getOpportunities);
+router.get('/opportunities', getOpportunities);
 
 // Specific dashboards & application lists (MUST be defined before /:id)
 router.get('/opportunities/stats', protect, authorize('ngo', 'admin'), getNgoStats);
@@ -100,7 +100,7 @@ router.get('/opportunities/applications/mine', protect, authorize('citizen'), ge
 router.get('/opportunities/applications', protect, authorize('ngo', 'admin'), getNgoApplications);
 
 // Single opportunity & application management
-router.get('/opportunities/:id', protect, getOpportunityById);
+router.get('/opportunities/:id', getOpportunityById);
 router.post('/opportunities/:id/apply', protect, authorize('citizen'), applyToOpportunity);
 router.patch('/opportunities/:id/applications/:appId', protect, authorize('ngo', 'admin'), updateApplicationStatus);
 router.patch('/opportunities/:id/complete/:userId', protect, authorize('ngo', 'admin'), completeVolunteer);
@@ -109,7 +109,7 @@ router.patch('/opportunities/:id/complete/:userId', protect, authorize('ngo', 'a
    4. EVENTS & COMMUNITY CALENDAR
    ========================================================================== */
 router.post('/events', protect, authorize('ngo', 'business', 'authority', 'admin'), createEvent);
-router.get('/events', protect, getEvents);
+router.get('/events', getEvents);
 router.post('/events/:id/rsvp', protect, toggleRsvp);
 
 /* ==========================================================================

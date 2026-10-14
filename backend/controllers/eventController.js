@@ -1,5 +1,6 @@
 import { Event } from '../models/Event.js';
 import { asyncHandler } from '../utils/helpers.js';
+import { sendMail, eventRsvpConfirmationTemplate } from '../utils/mailer.js';
 
 /**
  * @desc    Create a new community event
@@ -116,6 +117,16 @@ export const toggleRsvp = asyncHandler(async (req, res) => {
   }
 
   await event.save();
+
+  // Send RSVP confirmation email to attendee
+  if (isRsvpd && req.user?.email) {
+    const rsvpHtml = eventRsvpConfirmationTemplate(req.user, event);
+    sendMail({
+      to: req.user.email,
+      subject: `CivicConnect: RSVP Confirmed for "${event.title}"`,
+      html: rsvpHtml
+    });
+  }
 
   res.status(200).json({
     success: true,

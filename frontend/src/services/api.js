@@ -1,0 +1,259 @@
+const API_BASE = 'http://localhost:5000/api';
+
+/**
+ * Token and User Session Storage
+ */
+export const getToken = () => localStorage.getItem('civic_token');
+
+export const setToken = (token) => {
+  if (token) {
+    localStorage.setItem('civic_token', token);
+  } else {
+    localStorage.removeItem('civic_token');
+  }
+};
+
+export const getStoredUser = () => {
+  try {
+    const raw = localStorage.getItem('civic_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const setStoredUser = (user) => {
+  if (user) {
+    localStorage.setItem('civic_user', JSON.stringify(user));
+  } else {
+    localStorage.removeItem('civic_user');
+  }
+};
+
+export const clearAuth = () => {
+  localStorage.removeItem('civic_token');
+  localStorage.removeItem('civic_user');
+};
+
+/**
+ * Standard HTTP Request Wrapper
+ */
+async function request(endpoint, options = {}) {
+  const token = getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {})
+  };
+
+  const config = {
+    ...options,
+    headers
+  };
+
+  const response = await fetch(`${API_BASE}${endpoint}`, config);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(data.message || `Request failed with status ${response.status}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+
+  return data;
+}
+
+/**
+ * Normalize an opportunity record from backend or local seed
+ */
+export function normalizeOpportunity(opp) {
+  if (!opp) return null;
+  const oppId = opp.id || opp._id;
+  const rawDate = opp.date;
+  let dateFormatted = '';
+  if (rawDate) {
+    if (typeof rawDate === 'string' && rawDate.includes('T')) {
+      dateFormatted = rawDate.split('T')[0];
+    } else if (rawDate instanceof Date) {
+      dateFormatted = rawDate.toISOString().split('T')[0];
+    } else {
+      dateFormatted = String(rawDate);
+    }
+  }
+
+  const apps = Array.isArray(opp.applications) ? opp.applications : [];
+  const volunteers = opp.volunteers && opp.volunteers.length > 0
+    ? opp.volunteers
+    : apps.map((a) => a.applicantName || 'Volunteer');
+
+  return {
+    ...opp,
+    id: oppId,
+    _id: oppId,
+    title: opp.title || 'Untitled Opportunity',
+    description: opp.description || '',
+    category: opp.category || 'Community',
+    location: opp.location || 'Metropolis',
+    date: dateFormatted || 'TBA',
+    capacity: Number(opp.capacity) || 10,
+    appliedCount: opp.appliedCount !== undefined ? opp.appliedCount : apps.length,
+    volunteers,
+    applications: apps,
+    ngoName: opp.creatorName || opp.ngoName || 'Civic Organization',
+    ngoId: opp.creator || opp.ngoId || ''
+  };
+}
+
+/**
+ * API Client Services
+ */
+export const api = {
+  // Auth
+  async login(identifier, password, role) {
+    const res = await request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, password, role })
+    });
+    if (res.token) setToken(res.token);
+    if (res.data) setStoredUser(res.data);
+    return res;
+  },
+
+  async signup(payload) {
+    const res = await request('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (res.token) setToken(res.token);
+    if (res.data) setStoredUser(res.data);
+    return res;
+  },
+
+  async getMe() {
+    const token = getToken();
+    if (!token) return null;
+    try {
+      const res = await request('/auth/me');
+      if (res.data) setStoredUser(res.data);
+      return res.data;
+    } catch (err) {
+      if (err.status === 401) {
+        clearAuth();
+      }
+      return null;
+    }
+  },
+
+  // Opportunities
+  async getOpportunities(query = {}) {
+    const qs = new URLSearchParams(query).toString();
+    const endpoint = `/opportunities${qs ? `?${qs}` : ''}`;
+    const res = await request(endpoint);
+    const list = Array.isArray(res.data) ? res.data : [];
+    return list.map(normalizeOpportunity);
+  },
+
+  async getOpportunityById(id) {
+    const res = await request(`/opportunities/${id}`);
+    return normalizeOpportunity(res.data);
+  },
+
+  async createOpportunity(oppData) {
+    const res = await request('/opportunities', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: oppData.title,
+        description: oppData.description,
+        location: oppData.location,
+        category: oppData.category || 'Environment',
+        date: oppData.date,
+        capacity: Number(oppData.capacity) || 10,
+        type: 'volunteer'
+      })
+    });
+    return normalizeOpportunity(res.data);
+  },
+
+  async applyToOpportunity(oppId) {
+    const res = await request(`/opportunities/${oppId}/apply`, {
+      method: 'POST'
+    });
+    return normalizeOpportunity(res.data);
+  },
+
+  async getNgoApplications() {
+    const res = await request('/opportunities/applications');
+    const apps = Array.isArray(res.data) ? res.data : [];
+    return apps.map((app) => ({
+      id: app.id || app._id,
+      _id: app.id || app._id,
+      opportunityId: app.opportunityId,
+      opportunityTitle: app.opportunityTitle,
+      citizenName: app.citizenName || 'Citizen Applicant',
+      citizenEmail: app.citizenEmail || '',
+      citizenPhone: app.citizenPhone || '',
+      status: app.status === 'approved' ? 'Approved' : app.status === 'rejected' ? 'Rejected' : 'Pending',
+      appliedAt: app.appliedAt
+    }));
+  },
+
+  async updateApplicationStatus(oppId, appId, status) {
+    const normalized = (status || '').toLowerCase();
+    const res = await request(`/opportunities/${oppId || 'undefined'}/applications/${appId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: normalized })
+    });
+    return res.data;
+  },
+
+  async getNgoStats() {
+    const res = await request('/opportunities/stats');
+    return res.data;
+  },
+
+  // Complaints
+  async getComplaints() {
+    const res = await request('/complaints');
+    return Array.isArray(res.data) ? res.data : [];
+  },
+
+  async createComplaint(complaintData) {
+    const res = await request('/complaints', {
+      method: 'POST',
+      body: JSON.stringify(complaintData)
+    });
+    return res.data;
+  },
+
+  async updateComplaintStatus(id, status) {
+    const res = await request(`/complaints/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+    return res.data;
+  },
+
+  // Events
+  async getEvents() {
+    const res = await request('/events');
+    return Array.isArray(res.data) ? res.data : [];
+  },
+
+  async createEvent(eventData) {
+    const res = await request('/events', {
+      method: 'POST',
+      body: JSON.stringify(eventData)
+    });
+    return res.data;
+  },
+
+  async toggleRsvp(id) {
+    const res = await request(`/events/${id}/rsvp`, {
+      method: 'POST'
+    });
+    return res.data;
+  }
+};
+
+export default api;

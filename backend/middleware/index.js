@@ -60,8 +60,10 @@ export const protect = async (req, res, next) => {
  * Authorize middleware: restricts access to specific roles
  */
 export const authorize = (...roles) => {
+  const normalizedRoles = roles.map((r) => r.toLowerCase());
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    const userRole = (req.user?.role || '').toLowerCase();
+    if (!req.user || !normalizedRoles.includes(userRole)) {
       return res.status(403).json({
         success: false,
         message: `User role '${req.user ? req.user.role : 'unauthenticated'}' is not authorized to access this route`

@@ -12,6 +12,8 @@ export default function NgoDashboard({
   onUpdateApplicationStatus
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [newOpp, setNewOpp] = useState({
     title: '',
     description: '',
@@ -25,37 +27,56 @@ export default function NgoDashboard({
     return <div className="p-6 text-center text-secondary">Loading Profile Context...</div>;
   }
 
-  // Filter opportunities posted by this NGO
-  const ngoOpps = opportunities.filter(opp => opp.ngoName === user.name || opp.ngoId === user.id);
-  const oppIds = ngoOpps.map(opp => opp.id);
+  const userId = (user._id || user.id)?.toString();
+  const userName = (user.name || user.orgName || '').toLowerCase().trim();
+
+  // Filter opportunities posted by this NGO (robust against MongoDB ID or creatorName)
+  const ngoOpps = opportunities.filter((opp) => {
+    const oppCreatorId = (opp.creator?._id || opp.creator || opp.ngoId)?.toString();
+    const oppCreatorName = (opp.creatorName || opp.ngoName || '').toLowerCase().trim();
+    const idMatch = userId && oppCreatorId && userId === oppCreatorId;
+    const nameMatch = userName && oppCreatorName && (oppCreatorName.includes(userName) || userName.includes(oppCreatorName));
+    return idMatch || nameMatch;
+  });
+
+  const oppIds = ngoOpps.map((opp) => (opp._id || opp.id)?.toString()).filter(Boolean);
 
   // Filter applications targeting this NGO's opportunities
-  const ngoApps = applications.filter(app => oppIds.includes(app.opportunityId));
+  const ngoApps = applications.filter((app) => {
+    const appOppId = (app.opportunityId?._id || app.opportunityId || app.oppId)?.toString();
+    // If applications are fetched specifically for this NGO, show them, or match by oppId
+    return oppIds.includes(appOppId) || (!appOppId && applications.length > 0);
+  });
 
-  const handlePostOpportunity = (e) => {
+  const handlePostOpportunity = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
     if (!newOpp.title || !newOpp.location || !newOpp.date) {
-      alert('Please fill out all required fields.');
+      setErrorMsg('Please fill out all required fields.');
       return;
     }
 
-    const createdOpp = {
-      id: 'opp-' + Math.floor(Math.random() * 1000),
-      title: newOpp.title,
-      description: newOpp.description,
-      ngoName: user.name,
-      ngoId: user.id,
-      location: newOpp.location,
-      category: newOpp.category,
-      date: newOpp.date,
-      capacity: parseInt(newOpp.capacity),
-      appliedCount: 0,
-      volunteers: []
-    };
+    setIsPosting(true);
+    try {
+      const createdOpp = {
+        title: newOpp.title,
+        description: newOpp.description,
+        ngoName: user.name || user.orgName,
+        ngoId: user._id || user.id,
+        location: newOpp.location,
+        category: newOpp.category,
+        date: newOpp.date,
+        capacity: parseInt(newOpp.capacity, 10) || 10
+      };
 
-    onAddOpportunity(createdOpp);
-    setShowCreateModal(false);
-    setNewOpp({ title: '', description: '', location: '', category: 'Environment', date: '', capacity: 10 });
+      await onAddOpportunity(createdOpp);
+      setShowCreateModal(false);
+      setNewOpp({ title: '', description: '', location: '', category: 'Environment', date: '', capacity: 10 });
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to post opportunity');
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   return (
@@ -186,14 +207,14 @@ export default function NgoDashboard({
                     <div className="flex gap-2 justify-end mt-2 pt-2 border-t border-border-custom">
                       <Button
                         variant="secondary"
-                        onClick={() => onUpdateApplicationStatus(app.id, 'Rejected')}
+                        onClick={() => onUpdateApplicationStatus(app.id || app._id, 'Rejected', app.opportunityId)}
                         className="h-8 min-h-0 text-[10px] px-3 font-bold border-error text-error hover:bg-error-container/20"
                       >
                         Reject
                       </Button>
                       <Button
                         variant="primary"
-                        onClick={() => onUpdateApplicationStatus(app.id, 'Approved')}
+                        onClick={() => onUpdateApplicationStatus(app.id || app._id, 'Approved', app.opportunityId)}
                         className="h-8 min-h-0 text-[10px] px-3 font-bold bg-primary text-primary-on"
                       >
                         Approve
@@ -280,12 +301,18 @@ export default function NgoDashboard({
                 required
               />
 
+              {errorMsg && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2.5 rounded-custom-lg text-xs font-semibold text-center">
+                  {errorMsg}
+                </div>
+              )}
+
               <div className="pt-4 border-t border-border-custom flex justify-end gap-2">
-                <Button variant="secondary" onClick={() => setShowCreateModal(false)} className="h-10 min-h-0 text-xs">
+                <Button variant="secondary" onClick={() => setShowCreateModal(false)} disabled={isPosting} className="h-10 min-h-0 text-xs">
                   Cancel
                 </Button>
-                <Button type="submit" variant="primary" className="h-10 min-h-0 text-xs">
-                  Publish Drive
+                <Button type="submit" variant="primary" disabled={isPosting} className="h-10 min-h-0 text-xs">
+                  {isPosting ? 'Publishing...' : 'Publish Drive'}
                 </Button>
               </div>
             </form>

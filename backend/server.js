@@ -8,6 +8,7 @@ import { connectDB } from './config/db.js';
 import { verifyTransporter } from './utils/mailer.js';
 import { errorHandler } from './middleware/index.js';
 import { User } from './models/User.js';
+import { Opportunity } from './models/Opportunity.js';
 import routes from './routes.js';
 
 const app = express();
@@ -98,6 +99,62 @@ const seedAdminUser = async () => {
   }
 };
 
+// Seed initial volunteer opportunities if none exist
+const seedOpportunities = async () => {
+  try {
+    const count = await Opportunity.countDocuments();
+    if (count === 0) {
+      const creator = (await User.findOne({ role: 'ngo' })) || (await User.findOne({ role: 'admin' }));
+      if (creator) {
+        await Opportunity.create([
+          {
+            creator: creator._id,
+            creatorName: 'GreenEarth Network',
+            creatorRole: 'ngo',
+            type: 'volunteer',
+            title: 'Community Tree Planting Drive',
+            description: 'Join us to plant over 500 indigenous saplings across the East Riverbank Park to combat urban heat islands.',
+            category: 'Environment',
+            date: new Date('2026-08-05'),
+            location: 'East Riverbank Park, Gate 3',
+            capacity: 12,
+            applications: []
+          },
+          {
+            creator: creator._id,
+            creatorName: 'Metropolis Care Foundation',
+            creatorRole: 'ngo',
+            type: 'volunteer',
+            title: 'Weekend Soup Kitchen Helpers',
+            description: 'We need volunteers to assist with food preparation, table services, and cleanup at our weekly soup kitchen. Bring an apron and a smile!',
+            category: 'Social Support',
+            date: new Date('2026-08-09'),
+            location: 'Central Soup Kitchen, 45 Pine St',
+            capacity: 10,
+            applications: []
+          },
+          {
+            creator: creator._id,
+            creatorName: 'FutureMinds Academics',
+            creatorRole: 'ngo',
+            type: 'volunteer',
+            title: 'Interactive Math Tutoring for Kids',
+            description: 'Help underrepresented elementary school children catch up on foundational mathematics. Sessions are held at the local public library.',
+            category: 'Education',
+            date: new Date('2026-08-12'),
+            location: 'Metropolis Public Library (Room B)',
+            capacity: 6,
+            applications: []
+          }
+        ]);
+        console.log('🌱 Sample volunteer opportunities initialized in database');
+      }
+    }
+  } catch (error) {
+    console.error('⚠️  Failed to seed opportunities:', error.message);
+  }
+};
+
 // Server Initialization
 const PORT = process.env.PORT || 5000;
 
@@ -111,6 +168,9 @@ const startServer = async () => {
 
     // Seed default admin user if not already present
     await seedAdminUser();
+
+    // Seed initial opportunities if database is empty
+    await seedOpportunities();
 
     app.listen(PORT, () => {
       console.log(`🚀 CivicConnect Backend Server running on http://localhost:${PORT}`);

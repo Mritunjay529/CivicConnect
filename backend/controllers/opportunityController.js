@@ -3,7 +3,14 @@ import { Opportunity } from '../models/Opportunity.js';
 import { User } from '../models/User.js';
 import { Notification } from '../models/Notification.js';
 import { asyncHandler, evaluateBadges } from '../utils/helpers.js';
-import { sendMail, volunteerApplicationStatusTemplate } from '../utils/mailer.js';
+import {
+  sendMail,
+  volunteerApplicationStatusTemplate,
+  volunteerApplicationReceivedTemplate,
+  volunteerApplicationSubmittedTemplate,
+  volunteerCompletedCertificateTemplate,
+  csrInitiativeCreatedTemplate
+} from '../utils/mailer.js';
 
 /**
  * @desc    Create a volunteer opportunity or CSR initiative
@@ -55,6 +62,16 @@ export const createOpportunity = asyncHandler(async (req, res) => {
     impactMetric: impactMetric || '',
     peopleImpacted: Number(peopleImpacted) || 0
   });
+
+  // Send confirmation email for corporate CSR initiative
+  if (resolvedType === 'csr' && req.user?.email) {
+    const csrHtml = csrInitiativeCreatedTemplate(req.user, opportunity);
+    sendMail({
+      to: req.user.email,
+      subject: `CivicConnect: CSR Initiative Registered - "${opportunity.title}"`,
+      html: csrHtml
+    });
+  }
 
   res.status(201).json({
     success: true,
@@ -190,6 +207,27 @@ export const applyToOpportunity = asyncHandler(async (req, res) => {
     relatedId: opportunity._id
   }).catch((err) => console.warn('Notification err:', err.message));
 
+  // Send email to NGO organizer
+  const organizerUser = await User.findById(opportunity.creator);
+  if (organizerUser && organizerUser.email) {
+    const orgEmailHtml = volunteerApplicationReceivedTemplate(organizerUser, opportunity, req.user);
+    sendMail({
+      to: organizerUser.email,
+      subject: `CivicConnect: New Volunteer Application for "${opportunity.title}"`,
+      html: orgEmailHtml
+    });
+  }
+
+  // Send confirmation email to Citizen applicant
+  if (req.user && req.user.email) {
+    const citEmailHtml = volunteerApplicationSubmittedTemplate(req.user, opportunity);
+    sendMail({
+      to: req.user.email,
+      subject: `CivicConnect: Application Received - "${opportunity.title}"`,
+      html: citEmailHtml
+    });
+  }
+
   res.status(201).json({
     success: true,
     message: 'Application submitted successfully. Awaiting organizer approval.',
@@ -277,23 +315,40 @@ export const getNgoApplications = asyncHandler(async (req, res) => {
  */
 export const updateApplicationStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
+  const normalizedStatus = (status || '').toLowerCase();
 
-  if (!['approved', 'rejected'].includes(status)) {
+  if (!['approved', 'rejected'].includes(normalizedStatus)) {
     return res.status(400).json({
       success: false,
       message: "Status must be 'approved' or 'rejected'"
     });
   }
 
-  const opportunity = await Opportunity.findOne({
-    _id: req.params.id,
-    ...(req.user.role !== 'admin' ? { creator: req.user._id } : {})
-  });
+  let opportunity;
+  if (req.params.id && req.params.id !== 'undefined') {
+    opportunity = await Opportunity.findById(req.params.id);
+  }
+  if (!opportunity) {
+    opportunity = await Opportunity.findOne({
+      'applications._id': req.params.appId
+    });
+  }
 
   if (!opportunity) {
     return res.status(404).json({
       success: false,
-      message: 'Opportunity not found or you are not authorized to manage it'
+      message: 'Opportunity not found'
+    });
+  }
+
+  // Permission check: NGO can only manage their own opportunities; admin can manage all
+  if (
+    req.user.role !== 'admin' &&
+    opportunity.creator.toString() !== req.user._id.toString()
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: 'Not authorized to manage applications for this opportunity'
     });
   }
 
@@ -305,7 +360,7 @@ export const updateApplicationStatus = asyncHandler(async (req, res) => {
     });
   }
 
-  application.status = status;
+  application.status = normalizedStatus;
   await opportunity.save();
 
   // Find applicant to send email and notification
@@ -391,6 +446,16 @@ export const completeVolunteer = asyncHandler(async (req, res) => {
       type: 'opportunity',
       relatedId: opportunity._id
     }).catch((err) => console.warn('Notification err:', err.message));
+
+    // Send Certificate and completion email
+    if (volunteerUser.email) {
+      const certHtml = volunteerCompletedCertificateTemplate(volunteerUser, opportunity);
+      sendMail({
+        to: volunteerUser.email,
+        subject: `CivicConnect: Certificate & Completion for "${opportunity.title}"`,
+        html: certHtml
+      });
+    }
   }
 
   res.status(200).json({

@@ -24,7 +24,7 @@ export default function CitizenDashboard({ user, complaints = [], opportunities 
 
   // Recommendations: Filter opportunities that user has not applied/joined yet
   const aiRecommendedOpps = opportunities
-    .filter(opp => !opp.volunteers.includes(user.name))
+    .filter(opp => !(opp.volunteers || []).includes(user.name))
     .slice(0, 2);
 
   // Recommendations: Filter upcoming events
@@ -163,7 +163,7 @@ export default function CitizenDashboard({ user, complaints = [], opportunities 
 
             <div className="flex flex-col gap-4">
               {aiRecommendedOpps.map((opp) => (
-                <Card key={opp.id} className="flex flex-col gap-3 p-4 hover:border-primary/50 transition-all duration-200">
+                <Card key={opp.id || opp._id} className="flex flex-col gap-3 p-4 hover:border-primary/50 transition-all duration-200">
                   <div className="flex justify-between items-start">
                     <Badge variant="info" className="text-[10px]">{opp.category}</Badge>
                     <span className="text-[10px] text-secondary/50 font-medium">{opp.date}</span>

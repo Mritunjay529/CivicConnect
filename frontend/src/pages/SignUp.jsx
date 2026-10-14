@@ -156,13 +156,17 @@ export default function SignUp({ onLoginSuccess }) {
       if (response.ok && result.success && result.data) {
         registeredUser = {
           ...result.data,
+          id: result.data._id || result.data.id,
+          _id: result.data._id || result.data.id,
+          name: result.data.name || result.data.orgName || payload.name || payload.orgName || 'User',
           role: role,
-          points: result.data.points ?? 100,
+          points: result.data.rewardPoints ?? result.data.points ?? 100,
           activityHistory: result.data.activityHistory || []
         };
         if (result.token) {
           localStorage.setItem('civic_token', result.token);
         }
+        localStorage.setItem('civic_user', JSON.stringify(registeredUser));
       } else if (!response.ok && result.message) {
         setErrorMessage(result.message);
         setIsLoading(false);
@@ -170,6 +174,7 @@ export default function SignUp({ onLoginSuccess }) {
       }
     } catch (fetchErr) {
       console.warn('Backend signup unavailable, proceeding with local registration:', fetchErr);
+      localStorage.setItem('civic_user', JSON.stringify(registeredUser));
     }
 
     setIsLoading(false);
