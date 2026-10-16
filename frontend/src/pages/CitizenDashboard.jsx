@@ -4,8 +4,9 @@ import Card from '../components/Card';
 import Button from '../components/Button';
 import Badge from '../components/Badge';
 
-export default function CitizenDashboard({ user, complaints = [], opportunities = [], events = [] }) {
+export default function CitizenDashboard({ user, complaints = [], opportunities = [], initiatives = [], events = [] }) {
   const navigate = useNavigate();
+  const [supportedInits, setSupportedInits] = React.useState({});
 
   // If user is somehow null, redirect to Login
   if (!user) {
@@ -27,8 +28,20 @@ export default function CitizenDashboard({ user, complaints = [], opportunities 
     .filter(opp => !(opp.volunteers || []).includes(user.name))
     .slice(0, 2);
 
+  // Merge initiatives from props and any CSR items inside opportunities
+  const allCsrList = [
+    ...initiatives,
+    ...opportunities.filter(
+      (o) => o.type === 'csr' && !initiatives.some((i) => (i.id || i._id) === (o.id || o._id))
+    )
+  ];
+
   // Recommendations: Filter upcoming events
   const upcomingEvents = events.slice(0, 2);
+
+  const handleSupportInit = (initId) => {
+    setSupportedInits(prev => ({ ...prev, [initId]: true }));
+  };
 
   return (
     <div className="max-w-[1280px] mx-auto px-6 py-8 flex flex-col gap-8 pb-20">
@@ -147,6 +160,85 @@ export default function CitizenDashboard({ user, complaints = [], opportunities 
                     </div>
                   </Card>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* Corporate CSR & Community Initiatives Section */}
+          <div className="flex flex-col gap-4">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-[24px]">corporate_fare</span>
+                <h3 className="text-lg font-bold text-secondary">Corporate CSR & Community Initiatives</h3>
+                <Badge variant="success" className="text-[10px]">Active Grants</Badge>
+              </div>
+              <Link to="/volunteer-opportunities" className="text-xs font-bold text-primary hover:underline">
+                View All
+              </Link>
+            </div>
+
+            {allCsrList.length === 0 ? (
+              <Card className="text-center py-8 text-secondary/60 flex flex-col items-center gap-2">
+                <span className="material-symbols-outlined text-[40px] text-secondary/40">spa</span>
+                <p className="text-sm">No corporate CSR activities posted yet.</p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {allCsrList.slice(0, 4).map((init) => {
+                  const initId = init.id || init._id;
+                  const isSupported = Boolean(supportedInits[initId]);
+                  return (
+                    <Card key={initId} className="p-4 flex flex-col justify-between gap-3 hover:border-primary/40 transition-all duration-200 border-l-4 border-l-primary">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="text-xs font-bold text-primary flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[15px]">verified</span>
+                            {init.businessName || init.creatorName || 'Corporate Partner'}
+                          </span>
+                          {init.budget && (
+                            <Badge variant="success" className="text-[11px] font-mono font-bold">
+                              {init.budget}
+                            </Badge>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-bold text-secondary line-clamp-1">{init.title}</h4>
+                        <p className="text-xs text-secondary/70 line-clamp-2 leading-relaxed">{init.description}</p>
+                        {init.impactMetric && (
+                          <div className="text-[11px] text-secondary/60 bg-surface-low/50 p-2 rounded-custom-sm border border-border-custom flex items-center gap-1 mt-1">
+                            <span className="material-symbols-outlined text-[13px] text-primary">eco</span>
+                            <span className="font-semibold text-secondary">Target ESG Metric:</span> {init.impactMetric}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-2 border-t border-border-custom text-xs">
+                        <span className="text-[10px] text-secondary/50 font-medium">
+                          {init.date ? `Posted: ${init.date}` : 'Ongoing Campaign'}
+                        </span>
+                        <Button
+                          variant={isSupported ? "secondary" : "primary"}
+                          onClick={() => handleSupportInit(initId)}
+                          disabled={isSupported}
+                          className={`h-7 min-h-0 text-[10px] px-3 ${
+                            isSupported ? 'text-green-700 bg-green-50 border-green-200' : ''
+                          }`}
+                        >
+                          {isSupported ? (
+                            <span className="flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                              Supported (+10 pts)
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <span className="material-symbols-outlined text-[13px]">thumb_up</span>
+                              Support & Follow
+                            </span>
+                          )}
+                        </Button>
+                      </div>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>

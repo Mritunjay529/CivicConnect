@@ -40,21 +40,67 @@ export default function App() {
   const [applications, setApplications] = useState(initialApplications);
   const [notifications, setNotifications] = useState(initialNotifications);
 
-  // Sync opportunities with backend database on load and changes
+  // Sync opportunities and CSR initiatives with backend database on load and changes
   const refreshOpportunities = async () => {
     try {
-      const data = await api.getOpportunities();
+      const data = await api.getOpportunities({ type: 'all' });
       if (data && data.length > 0) {
         setOpportunities(data);
+        // Also sync CSR initiatives from backend
+        const csrItems = data.filter((o) => o.type === 'csr');
+        if (csrItems.length > 0) {
+          setInitiatives((prev) => {
+            const map = new Map();
+            prev.forEach((item) => map.set(item.id || item._id, item));
+            csrItems.forEach((c) => {
+              map.set(c.id || c._id, {
+                id: c.id || c._id,
+                _id: c.id || c._id,
+                title: c.title,
+                description: c.description,
+                businessName: c.businessName || c.creatorName || 'Corporate Partner',
+                businessId: c.creator || c.businessId,
+                budget: c.budget ? (String(c.budget).startsWith('$') ? c.budget : `$${c.budget}`) : '$0',
+                impactMetric: c.impactMetric || '',
+                sponsoredEventId: c.sponsoredEventId,
+                date: c.date,
+                location: c.location,
+                type: 'csr'
+              });
+            });
+            return Array.from(map.values());
+          });
+        }
       }
     } catch (err) {
       console.warn('Backend opportunities fetch error, using local state:', err);
     }
   };
 
+  // Sync notifications from backend database
+  const refreshNotifications = async () => {
+    try {
+      const data = await api.getNotifications();
+      if (data && data.length > 0) {
+        setNotifications(data);
+      }
+    } catch (err) {
+      console.warn('Notifications fetch check:', err);
+    }
+  };
+
   useEffect(() => {
     refreshOpportunities();
-  }, []);
+    refreshNotifications();
+
+    // Auto-refresh periodically so citizen gets notifications in real time
+    const interval = setInterval(() => {
+      refreshNotifications();
+      refreshOpportunities();
+    }, 12000);
+
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   // Sync user profile on mount
   useEffect(() => {
@@ -331,19 +377,52 @@ export default function App() {
       created = {
         ...newOpp,
         id: 'opp-' + Math.floor(Math.random() * 1000),
+        _id: 'opp-' + Math.floor(Math.random() * 1000),
         appliedCount: 0,
         volunteers: []
       };
       setOpportunities((prev) => [created, ...prev]);
     }
-    // Refresh to get any updated metadata
+
+    // In-app notification for citizens
+    const today = new Date().toISOString().split('T')[0];
+    const newNotif = {
+      id: 'notif-' + Date.now(),
+      title: `New Volunteer Drive: ${newOpp.title}`,
+      message: `${currentUser?.name || 'An NGO partner'} posted a new volunteer opportunity: "${newOpp.title}".`,
+      date: today,
+      read: false
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    // Refresh to get any updated metadata and notifications
     refreshOpportunities();
+    refreshNotifications();
     return created;
   };
 
   // 6. NGO/Business Create events
-  const handleAddEvent = (newEvent) => {
-    setEvents((prev) => [newEvent, ...prev]);
+  const handleAddEvent = async (newEvent) => {
+    let created = newEvent;
+    try {
+      const res = await api.createEvent(newEvent);
+      if (res) created = res;
+    } catch (err) {
+      console.warn('Backend event creation error, using local state:', err);
+    }
+    setEvents((prev) => [created, ...prev]);
+
+    const today = new Date().toISOString().split('T')[0];
+    const newNotif = {
+      id: 'notif-' + Date.now(),
+      title: `New Community Event: ${newEvent.title}`,
+      message: `${currentUser?.name || 'An organization'} announced community event: "${newEvent.title}". RSVP now!`,
+      date: today,
+      read: false
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+    refreshNotifications();
+    return created;
   };
 
   // 7. Citizen RSVP to community events
@@ -397,19 +476,77 @@ export default function App() {
   };
 
   // 9. Business Create CSR Initiatives
-  const handleAddInitiative = (newInit) => {
-    setInitiatives((prev) => [newInit, ...prev]);
+  const handleAddInitiative = async (newInit) => {
+    let created = null;
+    try {
+      created = await api.createCsrInitiative(newInit);
+    } catch (err) {
+      console.warn('Backend create CSR initiative error, using local state:', err);
+      created = {
+        id: 'init-' + Math.floor(Math.random() * 1000),
+        _id: 'init-' + Math.floor(Math.random() * 1000),
+        ...newInit,
+        type: 'csr',
+        businessName: currentUser?.name || currentUser?.bizName || 'Corporate Partner',
+        creatorName: currentUser?.name || currentUser?.bizName || 'Corporate Partner',
+        creatorRole: 'business',
+        date: newInit.date || new Date().toISOString().split('T')[0]
+      };
+    }
+
+    const formattedInit = {
+      id: created.id || created._id,
+      _id: created.id || created._id,
+      title: created.title,
+      description: created.description,
+      businessName: created.businessName || created.creatorName || currentUser?.name || 'Corporate Partner',
+      businessId: created.creator || created.businessId || currentUser?.id,
+      budget: created.budget ? (String(created.budget).startsWith('$') ? created.budget : `$${created.budget}`) : '$0',
+      impactMetric: created.impactMetric || 'Corporate social responsibility initiative',
+      sponsoredEventId: created.sponsoredEventId,
+      date: created.date || new Date().toISOString().split('T')[0],
+      location: created.location || 'Metropolis',
+      type: 'csr'
+    };
+
+    setInitiatives((prev) => [formattedInit, ...prev]);
+    setOpportunities((prev) => [created, ...prev]);
+
+    // Push in-app notification for citizens immediately
+    const today = new Date().toISOString().split('T')[0];
+    const newNotif = {
+      id: 'notif-' + Date.now(),
+      title: `New CSR Initiative: ${created.title}`,
+      message: `${currentUser?.name || 'A business partner'} launched corporate CSR initiative: "${created.title}".`,
+      date: today,
+      read: false
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    refreshOpportunities();
+    refreshNotifications();
+    return created;
   };
 
   // 10. Notifications read handlers
-  const handleMarkRead = (id) => {
+  const handleMarkRead = async (id) => {
     setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      prev.map((n) => (n.id === id || n._id === id ? { ...n, read: true } : n))
     );
+    try {
+      await api.markNotificationRead(id);
+    } catch (err) {
+      console.warn('Mark read API error:', err);
+    }
   };
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      await api.markAllNotificationsRead();
+    } catch (err) {
+      console.warn('Mark all read API error:', err);
+    }
   };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -493,6 +630,7 @@ export default function App() {
                     user={currentUser}
                     complaints={complaints}
                     opportunities={opportunities}
+                    initiatives={initiatives}
                     events={events}
                   />
                 ) : (
@@ -535,6 +673,7 @@ export default function App() {
                 <VolunteerListing
                   user={currentUser}
                   opportunities={opportunities}
+                  initiatives={initiatives}
                   onApplyOpportunity={handleApplyOpportunity}
                 />
               } 
@@ -559,6 +698,7 @@ export default function App() {
                   <NgoDashboard
                     user={currentUser}
                     opportunities={opportunities}
+                    initiatives={initiatives}
                     applications={applications}
                     onAddOpportunity={handleAddOpportunity}
                     onUpdateApplicationStatus={handleUpdateApplicationStatus}

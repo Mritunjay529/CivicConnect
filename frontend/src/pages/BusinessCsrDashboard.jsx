@@ -12,69 +12,90 @@ export default function BusinessCsrDashboard({
   onSponsorEvent
 }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newInit, setNewInit] = useState({
     title: '',
     description: '',
     budget: '',
     impactMetric: '',
-    eventId: ''
+    eventId: '',
+    location: '',
+    category: 'CSR & Community'
   });
 
   if (!user) {
     return <div className="p-6 text-center text-secondary">Loading Profile Context...</div>;
   }
 
-  // Filter initiatives created by this corporate business
-  const bizInitiatives = initiatives.filter(init => init.businessName === user.name || init.businessId === user.id);
+  const userIdStr = (user._id || user.id)?.toString();
+  const userNameLower = (user.name || user.bizName || user.orgName || '').toLowerCase().trim();
+
+  // Filter initiatives created by this corporate business (robust check across ID and name)
+  const bizInitiatives = initiatives.filter((init) => {
+    const initBizId = (init.businessId || init.creator?._id || init.creator)?.toString();
+    const initBizName = (init.businessName || init.creatorName || '').toLowerCase().trim();
+    const idMatch = userIdStr && initBizId && userIdStr === initBizId;
+    const nameMatch = userNameLower && initBizName && (userNameLower === initBizName || initBizName.includes(userNameLower) || userNameLower.includes(initBizName));
+    return idMatch || nameMatch;
+  });
 
   // Filter unsponsored events that are eligible for sponsorship
   const unsponsoredEvents = events.filter(evt => !evt.sponsoredBy);
 
-  const handleCreateInitiative = (e) => {
+  const handleCreateInitiative = async (e) => {
     e.preventDefault();
     if (!newInit.title || !newInit.budget) {
       alert('Please fill out all required fields.');
       return;
     }
 
-    const createdInit = {
-      id: 'init-' + Math.floor(Math.random() * 1000),
-      title: newInit.title,
-      description: newInit.description,
-      businessName: user.name,
-      businessId: user.id,
-      sponsoredEventId: newInit.eventId || null,
-      budget: '$' + newInit.budget.replace('$', ''),
-      impactMetric: newInit.impactMetric || 'Pending project deployment verification'
-    };
+    setIsSubmitting(true);
+    try {
+      const budgetClean = '$' + newInit.budget.replace(/[^0-9]/g, '');
+      const createdInit = {
+        title: newInit.title,
+        description: newInit.description,
+        businessName: user.name || user.bizName || 'Corporate Partner',
+        businessId: user._id || user.id,
+        budget: budgetClean,
+        impactMetric: newInit.impactMetric || 'Pending project deployment verification',
+        sponsoredEventId: newInit.eventId || null,
+        location: newInit.location || 'Metropolis',
+        category: newInit.category || 'CSR & Community'
+      };
 
-    onAddInitiative(createdInit);
+      await onAddInitiative(createdInit);
 
-    // If an event was selected to sponsor, update the event sponsor in state
-    if (newInit.eventId) {
-      onSponsorEvent(newInit.eventId, user.name);
+      // If an event was selected to sponsor, update the event sponsor in state
+      if (newInit.eventId) {
+        onSponsorEvent(newInit.eventId, user.name);
+      }
+
+      setShowCreateModal(false);
+      setNewInit({ title: '', description: '', budget: '', impactMetric: '', eventId: '', location: '', category: 'CSR & Community' });
+    } catch (err) {
+      alert('Failed to launch CSR campaign: ' + (err.message || 'Please try again.'));
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setShowCreateModal(false);
-    setNewInit({ title: '', description: '', budget: '', impactMetric: '', eventId: '' });
   };
 
-  const handleDirectSponsor = (eventId) => {
+  const handleDirectSponsor = async (eventId) => {
     onSponsorEvent(eventId, user.name);
     
     // Auto-create matching initiative
     const matchingEvent = events.find(e => e.id === eventId);
     const generatedInit = {
-      id: 'init-' + Math.floor(Math.random() * 1000),
       title: `Event Sponsorship: ${matchingEvent.title}`,
       description: `Corporate funding for logistics, refreshments, and coordinator salaries for the community event.`,
       businessName: user.name,
-      businessId: user.id,
+      businessId: user._id || user.id,
       sponsoredEventId: eventId,
       budget: '$5,000',
-      impactMetric: `Helped fund gathering space for estimated ${matchingEvent.rsvps.length + 10} neighborhood attendees.`
+      impactMetric: `Helped fund gathering space for estimated ${(matchingEvent.rsvps?.length || 0) + 10} neighborhood attendees.`,
+      category: 'Community Sponsorship'
     };
-    onAddInitiative(generatedInit);
+    await onAddInitiative(generatedInit);
   };
 
   return (
@@ -304,11 +325,11 @@ export default function BusinessCsrDashboard({
               />
 
               <div className="pt-4 border-t border-border-custom flex justify-end gap-2">
-                <Button variant="secondary" onClick={() => setShowCreateModal(false)} className="h-10 min-h-0 text-xs">
+                <Button variant="secondary" onClick={() => setShowCreateModal(false)} disabled={isSubmitting} className="h-10 min-h-0 text-xs">
                   Cancel
                 </Button>
-                <Button type="submit" variant="primary" className="h-10 min-h-0 text-xs">
-                  Publish ESG Campaign
+                <Button type="submit" variant="primary" disabled={isSubmitting} className="h-10 min-h-0 text-xs">
+                  {isSubmitting ? 'Publishing Campaign...' : 'Publish ESG Campaign'}
                 </Button>
               </div>
             </form>

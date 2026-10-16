@@ -73,6 +73,34 @@ export const createOpportunity = asyncHandler(async (req, res) => {
     });
   }
 
+  // Create notifications for all citizens whenever any organization posts an activity
+  try {
+    const citizens = await User.find({ role: 'citizen' }).select('_id');
+    if (citizens && citizens.length > 0) {
+      const orgName = req.user.name || req.user.orgName || req.user.bizName || req.user.department || 'An organization';
+      const isCsr = resolvedType === 'csr';
+      const notifTitle = isCsr
+        ? `New CSR Initiative: ${opportunity.title}`
+        : `New Volunteer Drive: ${opportunity.title}`;
+      const notifMessage = isCsr
+        ? `${orgName} has launched a corporate CSR initiative: "${opportunity.title}" with a budget of ${opportunity.budget || 'corporate funding'}.`
+        : `${orgName} posted a new volunteer opportunity: "${opportunity.title}" in ${opportunity.category}. Join now!`;
+
+      const notifications = citizens.map((c) => ({
+        user: c._id,
+        title: notifTitle,
+        message: notifMessage,
+        type: 'opportunity',
+        relatedId: opportunity._id,
+        read: false
+      }));
+
+      await Notification.insertMany(notifications);
+    }
+  } catch (notifErr) {
+    console.warn('Failed to notify citizens of new opportunity/CSR:', notifErr.message);
+  }
+
   res.status(201).json({
     success: true,
     message: `${resolvedType === 'csr' ? 'CSR Initiative' : 'Opportunity'} created successfully`,
@@ -86,11 +114,11 @@ export const createOpportunity = asyncHandler(async (req, res) => {
  * @access  Private
  */
 export const getOpportunities = asyncHandler(async (req, res) => {
-  const { search, category, date, type = 'volunteer' } = req.query;
+  const { search, category, date, type } = req.query;
 
   const query = {};
 
-  if (type) {
+  if (type && type !== 'all') {
     query.type = type;
   }
 

@@ -87,21 +87,33 @@ export function normalizeOpportunity(opp) {
     ? opp.volunteers
     : apps.map((a) => a.applicantName || 'Volunteer');
 
+  const resolvedType = opp.type || (opp.creatorRole === 'business' || opp.budget ? 'csr' : 'volunteer');
+  const orgName = opp.creatorName || opp.ngoName || opp.businessName || (resolvedType === 'csr' ? 'Corporate Partner' : 'Civic Organization');
+
   return {
     ...opp,
     id: oppId,
     _id: oppId,
     title: opp.title || 'Untitled Opportunity',
     description: opp.description || '',
-    category: opp.category || 'Community',
+    category: opp.category || (resolvedType === 'csr' ? 'Corporate CSR' : 'Community'),
     location: opp.location || 'Metropolis',
     date: dateFormatted || 'TBA',
     capacity: Number(opp.capacity) || 10,
     appliedCount: opp.appliedCount !== undefined ? opp.appliedCount : apps.length,
     volunteers,
     applications: apps,
-    ngoName: opp.creatorName || opp.ngoName || 'Civic Organization',
-    ngoId: opp.creator || opp.ngoId || ''
+    type: resolvedType,
+    creatorRole: opp.creatorRole || (resolvedType === 'csr' ? 'business' : 'ngo'),
+    creatorName: orgName,
+    ngoName: orgName,
+    ngoId: opp.creator || opp.ngoId || '',
+    businessName: opp.businessName || (opp.creatorRole === 'business' ? orgName : 'Corporate Partner'),
+    businessId: opp.businessId || opp.creator || '',
+    budget: opp.budget ? (String(opp.budget).startsWith('$') ? opp.budget : `$${opp.budget}`) : '',
+    impactMetric: opp.impactMetric || '',
+    peopleImpacted: Number(opp.peopleImpacted) || 0,
+    sponsoredEventId: opp.sponsoredEventId || null
   };
 }
 
@@ -145,7 +157,7 @@ export const api = {
     }
   },
 
-  // Opportunities
+  // Opportunities & CSR Initiatives
   async getOpportunities(query = {}) {
     const qs = new URLSearchParams(query).toString();
     const endpoint = `/opportunities${qs ? `?${qs}` : ''}`;
@@ -165,14 +177,42 @@ export const api = {
       body: JSON.stringify({
         title: oppData.title,
         description: oppData.description,
-        location: oppData.location,
+        location: oppData.location || 'Metropolis',
         category: oppData.category || 'Environment',
         date: oppData.date,
         capacity: Number(oppData.capacity) || 10,
-        type: 'volunteer'
+        type: oppData.type || 'volunteer',
+        budget: oppData.budget || '',
+        impactMetric: oppData.impactMetric || '',
+        peopleImpacted: Number(oppData.peopleImpacted) || 0,
+        sponsoredEventId: oppData.sponsoredEventId || undefined
       })
     });
     return normalizeOpportunity(res.data);
+  },
+
+  async createCsrInitiative(initData) {
+    const res = await request('/opportunities', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: initData.title,
+        description: initData.description,
+        location: initData.location || 'Metropolis',
+        category: initData.category || 'CSR & Community',
+        date: initData.date || new Date().toISOString().split('T')[0],
+        type: 'csr',
+        budget: initData.budget || '',
+        impactMetric: initData.impactMetric || '',
+        peopleImpacted: Number(initData.peopleImpacted) || 0,
+        sponsoredEventId: initData.sponsoredEventId || undefined
+      })
+    });
+    return normalizeOpportunity(res.data);
+  },
+
+  async getMyCsrInitiatives() {
+    const res = await request('/opportunities/csr/mine');
+    return res.data;
   },
 
   async applyToOpportunity(oppId) {
@@ -209,6 +249,36 @@ export const api = {
 
   async getNgoStats() {
     const res = await request('/opportunities/stats');
+    return res.data;
+  },
+
+  // Notifications
+  async getNotifications() {
+    const res = await request('/notifications');
+    const list = Array.isArray(res.data) ? res.data : [];
+    return list.map((n) => ({
+      id: n._id || n.id,
+      _id: n._id || n.id,
+      title: n.title,
+      message: n.message,
+      type: n.type || 'general',
+      relatedId: n.relatedId,
+      read: Boolean(n.read),
+      date: n.createdAt ? n.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]
+    }));
+  },
+
+  async markNotificationRead(id) {
+    const res = await request(`/notifications/${id}/read`, {
+      method: 'PATCH'
+    });
+    return res.data;
+  },
+
+  async markAllNotificationsRead() {
+    const res = await request('/notifications/read-all', {
+      method: 'PATCH'
+    });
     return res.data;
   },
 

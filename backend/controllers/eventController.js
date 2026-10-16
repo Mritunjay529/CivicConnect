@@ -1,4 +1,6 @@
 import { Event } from '../models/Event.js';
+import { User } from '../models/User.js';
+import { Notification } from '../models/Notification.js';
 import { asyncHandler } from '../utils/helpers.js';
 import { sendMail, eventRsvpConfirmationTemplate } from '../utils/mailer.js';
 
@@ -30,6 +32,30 @@ export const createEvent = asyncHandler(async (req, res) => {
     organizerRole: req.user.role,
     rsvps: []
   });
+
+  // Notify all citizens about newly posted community event
+  try {
+    const citizens = await User.find({ role: 'citizen' }).select('_id');
+    if (citizens && citizens.length > 0) {
+      const orgName = req.user.name || req.user.orgName || req.user.bizName || req.user.department || 'An organization';
+      const eventDateFormatted = date ? new Date(date).toISOString().split('T')[0] : '';
+      const notifTitle = `New Community Event: ${event.title}`;
+      const notifMessage = `${orgName} announced a new event: "${event.title}" on ${eventDateFormatted} at ${location}. RSVP now!`;
+
+      const notifications = citizens.map((c) => ({
+        user: c._id,
+        title: notifTitle,
+        message: notifMessage,
+        type: 'general',
+        relatedId: event._id,
+        read: false
+      }));
+
+      await Notification.insertMany(notifications);
+    }
+  } catch (notifErr) {
+    console.warn('Failed to notify citizens of event:', notifErr.message);
+  }
 
   res.status(201).json({
     success: true,

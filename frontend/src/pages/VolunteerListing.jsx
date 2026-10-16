@@ -4,21 +4,31 @@ import Badge from '../components/Badge';
 import Button from '../components/Button';
 import Input from '../components/Input';
 
-export default function VolunteerListing({ user, opportunities = [], onApplyOpportunity }) {
+export default function VolunteerListing({ user, opportunities = [], initiatives = [], onApplyOpportunity }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLocation, setSelectedLocation] = useState('All');
+  const [selectedType, setSelectedType] = useState('All'); // 'All' | 'volunteer' | 'csr'
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [appliedOppTitle, setAppliedOppTitle] = useState('');
+  const [supportedInits, setSupportedInits] = useState({});
 
   const [isApplying, setIsApplying] = useState(false);
 
+  // Combine all organization activities (volunteer + CSR)
+  const allActivities = [
+    ...opportunities,
+    ...initiatives.filter(
+      (init) => !opportunities.some((opp) => (opp.id || opp._id) === (init.id || init._id))
+    )
+  ];
+
   // Extract unique locations and categories for filter options
-  const categories = ['All', ...new Set(opportunities.map((o) => o.category).filter(Boolean))];
+  const categories = ['All', ...new Set(allActivities.map((o) => o.category).filter(Boolean))];
   const locations = [
     'All',
     ...new Set(
-      opportunities
+      allActivities
         .map((o) => (o.location ? o.location.split(',')[0].trim() : ''))
         .filter(Boolean)
     )
@@ -47,23 +57,66 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
     }
   };
 
+  const handleSupportCsr = (id) => {
+    setSupportedInits((prev) => ({ ...prev, [id]: true }));
+  };
+
   // Filter
-  const filteredOpps = opportunities.filter((opp) => {
+  const filteredActivities = allActivities.filter((opp) => {
+    const oppType = opp.type || (opp.budget ? 'csr' : 'volunteer');
+    const matchesType = selectedType === 'All' || oppType === selectedType;
     const titleMatch = (opp.title || '').toLowerCase().includes(searchTerm.toLowerCase());
     const descMatch = (opp.description || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSearch = titleMatch || descMatch;
+    const orgMatch = (opp.creatorName || opp.ngoName || opp.businessName || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = titleMatch || descMatch || orgMatch;
     const matchesCategory = selectedCategory === 'All' || opp.category === selectedCategory;
     const matchesLocation =
       selectedLocation === 'All' || (opp.location || '').includes(selectedLocation);
-    return matchesSearch && matchesCategory && matchesLocation;
+    return matchesType && matchesSearch && matchesCategory && matchesLocation;
   });
 
   return (
     <div className="max-w-[1280px] mx-auto px-6 py-8 flex flex-col gap-6 pb-20">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-extrabold text-secondary">Volunteer Opportunities</h2>
-        <p className="text-sm text-secondary/60">Find and apply for local service initiatives hosted by registered NGOs.</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-extrabold text-secondary">Organization Activities & Civic Opportunities</h2>
+          <p className="text-sm text-secondary/60">Explore community drives posted by registered NGOs and corporate CSR programs funded by local businesses.</p>
+        </div>
+
+        {/* Activity Type Filter Tabs */}
+        <div className="flex bg-surface-low p-1 rounded-custom-lg border border-border-custom self-stretch sm:self-auto">
+          <button
+            onClick={() => setSelectedType('All')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-custom-md transition-all ${
+              selectedType === 'All'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-secondary/70 hover:text-secondary'
+            }`}
+          >
+            All ({allActivities.length})
+          </button>
+          <button
+            onClick={() => setSelectedType('volunteer')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-custom-md transition-all ${
+              selectedType === 'volunteer'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-secondary/70 hover:text-secondary'
+            }`}
+          >
+            Volunteer Drives ({allActivities.filter(a => a.type !== 'csr').length})
+          </button>
+          <button
+            onClick={() => setSelectedType('csr')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-custom-md transition-all ${
+              selectedType === 'csr'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-secondary/70 hover:text-secondary'
+            }`}
+          >
+            Corporate CSR ({allActivities.filter(a => a.type === 'csr').length})
+          </button>
+        </div>
       </div>
 
       {/* Filter panel */}
@@ -96,16 +149,17 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
         </div>
       </Card>
 
-      {/* Opportunities Grid */}
+      {/* Opportunities & CSR Initiatives Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {filteredOpps.length === 0 ? (
+        {filteredActivities.length === 0 ? (
           <div className="col-span-2 text-center py-16 text-secondary/40 flex flex-col items-center gap-3">
             <span className="material-symbols-outlined text-[64px] text-secondary/20">search_off</span>
-            <p className="font-semibold text-sm">No volunteering opportunities match your filter parameters.</p>
+            <p className="font-semibold text-sm">No community activities match your filter parameters.</p>
           </div>
         ) : (
-          filteredOpps.map((opp) => {
+          filteredActivities.map((opp) => {
             const oppId = opp.id || opp._id;
+            const isCsr = opp.type === 'csr';
             const userId = (user?._id || user?.id)?.toString();
             const hasApplied =
               user &&
@@ -121,36 +175,52 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
                 : opp.applications?.length || 0;
             const capacity = opp.capacity || 10;
             const isFull = appliedCount >= capacity;
+            const isSupported = Boolean(supportedInits[oppId]);
 
             return (
               <Card
                 key={oppId}
-                className="flex flex-col gap-4 justify-between h-full hover:border-primary/50 transition-all duration-200"
+                className={`flex flex-col gap-4 justify-between h-full hover:border-primary/50 transition-all duration-200 ${
+                  isCsr ? 'border-l-4 border-l-primary' : ''
+                }`}
               >
                 <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-start gap-2">
-                    <Badge
-                      variant={
-                        opp.category === 'Environment'
-                          ? 'success'
-                          : opp.category === 'Social Support'
-                          ? 'warning'
-                          : 'info'
-                      }
-                    >
-                      {opp.category}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge
+                        variant={
+                          isCsr
+                            ? 'primary'
+                            : opp.category === 'Environment'
+                            ? 'success'
+                            : opp.category === 'Social Support'
+                            ? 'warning'
+                            : 'info'
+                        }
+                      >
+                        {isCsr ? 'Corporate CSR' : opp.category}
+                      </Badge>
+                      {isCsr && opp.budget && (
+                        <Badge variant="success" className="font-mono font-bold">
+                          {opp.budget}
+                        </Badge>
+                      )}
+                    </div>
                     <span className="text-xs text-secondary/50 font-semibold flex items-center gap-1">
                       <span className="material-symbols-outlined text-[14px]">event</span>
-                      {opp.date}
+                      {opp.date || 'Active'}
                     </span>
                   </div>
 
                   <div>
                     <h3 className="text-lg font-bold text-secondary">{opp.title}</h3>
                     <p className="text-xs text-primary font-bold mt-0.5 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[16px]">corporate_fare</span>
-                      Organized by {opp.ngoName}
+                      <span className="material-symbols-outlined text-[16px]">
+                        {isCsr ? 'corporate_fare' : 'volunteer_activism'}
+                      </span>
+                      {isCsr
+                        ? `Funded by ${opp.businessName || opp.creatorName || 'Corporate Partner'}`
+                        : `Organized by ${opp.ngoName || opp.creatorName || 'Civic Organization'}`}
                     </p>
                   </div>
 
@@ -158,20 +228,56 @@ export default function VolunteerListing({ user, opportunities = [], onApplyOppo
                     {opp.description}
                   </p>
 
-                  <div className="text-xs text-secondary/60 flex flex-col gap-1.5 mt-2 bg-surface-low/30 p-3 rounded-custom-lg border border-border-custom">
-                    <p className="flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[16px] text-primary">location_on</span>
-                      <span className="font-semibold text-secondary">Location:</span> {opp.location}
-                    </p>
-                    <p className="flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[16px] text-primary">group</span>
-                      <span className="font-semibold text-secondary">Volunteers Joined:</span> {appliedCount} / {capacity} ({Math.max(0, capacity - appliedCount)} spots left)
-                    </p>
-                  </div>
+                  {isCsr ? (
+                    <div className="text-xs text-secondary/60 flex flex-col gap-1.5 mt-2 bg-surface-low/40 p-3 rounded-custom-lg border border-border-custom">
+                      {opp.impactMetric && (
+                        <p className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[16px] text-primary">eco</span>
+                          <span className="font-semibold text-secondary">ESG Metric:</span> {opp.impactMetric}
+                        </p>
+                      )}
+                      <p className="flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[16px] text-primary">location_on</span>
+                        <span className="font-semibold text-secondary">Target Location:</span> {opp.location || 'Metropolis'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-secondary/60 flex flex-col gap-1.5 mt-2 bg-surface-low/30 p-3 rounded-custom-lg border border-border-custom">
+                      <p className="flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[16px] text-primary">location_on</span>
+                        <span className="font-semibold text-secondary">Location:</span> {opp.location}
+                      </p>
+                      <p className="flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[16px] text-primary">group</span>
+                        <span className="font-semibold text-secondary">Volunteers Joined:</span> {appliedCount} / {capacity} ({Math.max(0, capacity - appliedCount)} spots left)
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-border-custom flex justify-end">
-                  {hasApplied ? (
+                  {isCsr ? (
+                    <Button
+                      variant={isSupported ? "secondary" : "primary"}
+                      onClick={() => handleSupportCsr(oppId)}
+                      disabled={isSupported}
+                      className={`w-full sm:w-auto ${
+                        isSupported ? 'text-green-700 bg-green-50 border-green-200' : ''
+                      }`}
+                    >
+                      {isSupported ? (
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                          Supported (+10 pts)
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[16px]">thumb_up</span>
+                          Support & Follow
+                        </span>
+                      )}
+                    </Button>
+                  ) : hasApplied ? (
                     <Button variant="secondary" disabled className="w-full sm:w-auto text-green-700 bg-green-50 border-green-200">
                       <span className="material-symbols-outlined mr-2">check_circle</span>
                       Applied Successfully
