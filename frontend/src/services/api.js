@@ -1,4 +1,7 @@
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/+$/, '');
+const DEFAULT_API_BASE = import.meta.env.DEV
+  ? 'http://localhost:5000/api'
+  : 'https://civicconnect-4imj.onrender.com/api';
+const API_BASE = (import.meta.env.VITE_API_URL || DEFAULT_API_BASE).replace(/\/+$/, '');
 
 /**
  * Token and User Session Storage
