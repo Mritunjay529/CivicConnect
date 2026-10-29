@@ -20,11 +20,22 @@ app.use(
   })
 );
 
-// 2. CORS configuration (allows frontend origin from env or default localhost)
-const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+// 2. CORS configuration: explicitly allow configured frontend origins.
+const configuredClientUrls = (process.env.CLIENT_URLS || process.env.CLIENT_URL || '')
+  .split(',')
+  .map((url) => url.trim().replace(/\\/$/, ''))
+  .filter(Boolean);
+const allowedOrigins = new Set([
+  ...configuredClientUrls,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+]);
 app.use(
   cors({
-    origin: [clientUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error('Origin is not allowed by CivicConnect CORS policy'));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -77,8 +88,12 @@ app.use(errorHandler);
 // Admin Seeder function
 const seedAdminUser = async () => {
   try {
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@civicconnect.in').toLowerCase().trim();
-    const adminPassword = process.env.ADMIN_PASSWORD || 'adminPassword123!';
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+      console.warn('Admin seeding skipped: set ADMIN_EMAIL and ADMIN_PASSWORD in the host environment.');
+      return;
+    }
+    const adminEmail = process.env.ADMIN_EMAIL.toLowerCase().trim();
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
     const existingAdmin = await User.findOne({ email: adminEmail });
     if (!existingAdmin) {
@@ -174,7 +189,7 @@ const startServer = async () => {
 
     app.listen(PORT, () => {
       console.log(`🚀 CivicConnect Backend Server running on http://localhost:${PORT}`);
-      console.log(`🌐 CORS enabled for: ${clientUrl}`);
+      console.log(`🌐 CORS enabled for configured origins: ${[...allowedOrigins].join(', ')}`);
     });
   } catch (error) {
     console.error('❌ Failed to start CivicConnect server:', error.message);
