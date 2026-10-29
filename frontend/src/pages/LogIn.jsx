@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Card from '../components/Card';
 import Input from '../components/Input';
 import Button from '../components/Button';
+import api from '../services/api';
 
 export default function LogIn({ onLoginSuccess }) {
   const navigate = useNavigate();
@@ -31,53 +32,39 @@ export default function LogIn({ onLoginSuccess }) {
     setIsLoading(true);
     setError('');
 
-    let loggedInUser = {
-      email,
-      name: email.split('@')[0] || 'User',
-      role: role,
-      points: 120,
-      activityHistory: []
-    };
-
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier: email,
-          password: password,
-          role: role
-        })
-      });
-      const result = await response.json();
-      if (response.ok && result.success && result.data) {
-        loggedInUser = {
-          ...result.data,
-          id: result.data._id || result.data.id,
-          _id: result.data._id || result.data.id,
-          name: result.data.name || result.data.orgName || email.split('@')[0],
-          role: role,
-          points: result.data.rewardPoints ?? result.data.points ?? 120,
-          activityHistory: result.data.activityHistory || []
-        };
-        if (result.token) {
-          localStorage.setItem('civic_token', result.token);
-        }
-        localStorage.setItem('civic_user', JSON.stringify(loggedInUser));
-      } else if (!response.ok && result.message) {
-        setError(result.message);
-        setIsLoading(false);
-        return;
+      const response = await api.login(email.trim().toLowerCase(), password, role);
+      if (!response?.success || !response?.data) {
+        throw new Error(response?.message || 'Login failed. Please check your credentials and try again.');
       }
-    } catch (fetchErr) {
-      // Fallback to local session if backend API is unreachable
-      console.warn('Backend login unavailable, proceeding with local credentials:', fetchErr);
-      localStorage.setItem('civic_user', JSON.stringify(loggedInUser));
-    }
 
-    setIsLoading(false);
-    onLoginSuccess(loggedInUser);
-    redirectUser(loggedInUser.role || role);
+      const userData = response.data;
+      const roleMap = {
+        citizen: 'Citizen',
+        ngo: 'NGO',
+        business: 'Business',
+        authority: 'Municipal Authority'
+      };
+      const loggedInUser = {
+        ...userData,
+        id: userData._id || userData.id,
+        _id: userData._id || userData.id,
+        name: userData.name || userData.orgName || email.split('@')[0],
+        email: userData.email || email.trim().toLowerCase(),
+        role: roleMap[String(userData.role || role).toLowerCase()] || userData.role || role,
+        points: userData.rewardPoints ?? userData.points ?? 0,
+        activityHistory: userData.activityHistory || []
+      };
+
+      localStorage.setItem('civic_user', JSON.stringify(loggedInUser));
+      setIsLoading(false);
+      onLoginSuccess(loggedInUser);
+      redirectUser(loggedInUser.role);
+    } catch (fetchErr) {
+      console.error('CivicConnect login failed:', fetchErr);
+      setError(fetchErr.message || 'Unable to log in. Please try again.');
+      setIsLoading(false);
+    }
   };
 
   return (
