@@ -23,7 +23,7 @@ app.use(
 // 2. CORS configuration: explicitly allow configured frontend origins.
 const configuredClientUrls = (process.env.CLIENT_URLS || process.env.CLIENT_URL || '')
   .split(',')
-  .map((url) => url.trim().replace(/\\/$/, ''))
+  .map((url) => url.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 const allowedOrigins = new Set([
   ...configuredClientUrls,
