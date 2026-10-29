@@ -21,7 +21,7 @@ app.use(
 );
 
 // 2. CORS configuration: explicitly allow configured frontend origins.
-const configuredClientUrls = (process.env.CLIENT_URLS || process.env.CLIENT_URL || '')
+const configuredClientUrls = (process.env.CLIENT_URLS || process.env.CLIENT_URL || 'https://civic-connect-beta-eight.vercel.app')
   .split(',')
   .map((url) => url.trim().replace(/\/+$/, ''))
   .filter(Boolean);
