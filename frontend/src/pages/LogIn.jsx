@@ -19,6 +19,7 @@ export default function LogIn({ onLoginSuccess }) {
     else if (norm === 'ngo') navigate('/ngo-dashboard');
     else if (norm === 'business') navigate('/business-dashboard');
     else if (norm === 'authority' || norm === 'municipal authority') navigate('/municipal-dashboard');
+    else if (norm === 'admin') navigate('/admin-dashboard');
     else navigate('/');
   };
 
@@ -43,7 +44,8 @@ export default function LogIn({ onLoginSuccess }) {
         citizen: 'Citizen',
         ngo: 'NGO',
         business: 'Business',
-        authority: 'Municipal Authority'
+        authority: 'Municipal Authority',
+        admin: 'Admin'
       };
       const loggedInUser = {
         ...userData,
@@ -91,7 +93,8 @@ export default function LogIn({ onLoginSuccess }) {
               { value: 'Citizen', label: 'Citizen / Student' },
               { value: 'NGO', label: 'NGO Representative' },
               { value: 'Business', label: 'Corporate CSR rep' },
-              { value: 'Municipal Authority', label: 'Municipal Officer / Representative' }
+              { value: 'Municipal Authority', label: 'Municipal Officer / Representative' },
+              { value: 'Admin', label: 'Administrator' }
             ]}
           />
 

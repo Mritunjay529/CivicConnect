@@ -17,6 +17,7 @@ import EventCalendar from './pages/EventCalendar';
 import NgoDashboard from './pages/NgoDashboard';
 import BusinessCsrDashboard from './pages/BusinessCsrDashboard';
 import MunicipalDashboard from './pages/MunicipalDashboard';
+import AdminDashboard from './pages/AdminDashboard';
 import UserProfile from './pages/UserProfile';
 import Notifications from './pages/Notifications';
 
@@ -112,7 +113,8 @@ export default function App() {
             citizen: 'Citizen',
             ngo: 'NGO',
             business: 'Business',
-            authority: 'Municipal Authority'
+            authority: 'Municipal Authority',
+            admin: 'Admin'
           };
           const formatted = {
             ...me,
@@ -155,7 +157,8 @@ export default function App() {
       citizen: 'Citizen',
       ngo: 'NGO',
       business: 'Business',
-      authority: 'Municipal Authority'
+      authority: 'Municipal Authority',
+      admin: 'Admin'
     };
     const formatted = {
       ...userObj,
@@ -561,6 +564,8 @@ export default function App() {
         return '/business-dashboard';
       case 'Municipal Authority':
         return '/municipal-dashboard';
+      case 'Admin':
+        return '/admin-dashboard';
       default:
         return '/login';
     }
@@ -739,6 +744,23 @@ export default function App() {
                   <Navigate to="/login" replace />
                 )
               } 
+            />
+
+            <Route
+              path="/admin-dashboard"
+              element={
+                currentUser && String(currentUser.role || '').toLowerCase() === 'admin' ? (
+                  <AdminDashboard
+                    user={currentUser}
+                    complaints={complaints}
+                    opportunities={opportunities}
+                    events={events}
+                    initiatives={initiatives}
+                  />
+                ) : (
+                  <Navigate to={currentUser ? getDashboardPath(currentUser.role) : '/login'} replace />
+                )
+              }
             />
 
             <Route 
